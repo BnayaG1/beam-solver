@@ -26,10 +26,17 @@ def _running_inside_streamlit() -> bool:
 def main() -> None:
     st.set_page_config(page_title="פותר קורות", layout="wide")
     beam_ui.inject_ui_styles()
-    st.title("פותר קורות — Beam Solver")
-    st.caption(
-        "מודל: סמכת צמד ב־A וגליל ב־B (R_Bx=0). עומס אנכי כלפי מטה: הזן גודל חיובי (בלי מינוס). "
-        "העלאת תמונה — מילוי אוטומטי (נדרש API). "
+    st.markdown(
+        """
+        <div class="beam-hero">
+            <h1>פותר קורות — Beam Solver</h1>
+            <p>
+                סביבת חישוב ושרטוט אינטראקטיבית לסטטיקה: סמכים, עומסים, ריאקציות,
+                ודיאגרמות כוחות פנימיים בממשק נקי לסטודנטים להנדסה.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
     beam_ui.ensure_beam_session_defaults()
     beam_ui.migrate_vertical_inputs_to_positive_magnitude()

@@ -115,7 +115,8 @@ function hitSupport(which,mx,my){var g=geom(),xw=which==="ra"?G.ra:G.rb,px=xPix(
 return Math.abs(mx-px)<=18&&Math.abs(my-g.y)<=35;}
 function findItem(mx,my){var g=geom();
 for(var i=G.items.length-1;i>=0;i--){var it=G.items[i],px=xPix(it.x!=null?it.x:0);
-if(it.type==="point"||it.type==="incl"){if(Math.abs(mx-px)<14&&my>g.y-80&&my<g.y+40)return it;}
+if(it.type==="point"){if(Math.abs(mx-px)<14&&my>g.y-80&&my<g.y+80)return it;}
+else if(it.type==="incl"){if(Math.abs(mx-px)<14&&my>g.y-80&&my<g.y+40)return it;}
 else if(it.type==="moment"){if(Math.abs(mx-px)<14&&my>g.y-70&&my<g.y+25)return it;}
 else if(it.type==="distributed"){var a=xPix(it.x1),b=xPix(it.x2),lo=Math.min(a,b),hi=Math.max(a,b);
 if(mx>=lo-4&&mx<=hi+4&&my>g.y-75&&my<g.y-8)return it;}}
@@ -156,12 +157,14 @@ var n=Math.max(2,Math.min(7,Math.floor(span/44)+1));
 for(var j=1;j<n;j++){var qx=lo+(span*j/n);drawArrow(qx,g.y-10,qx,topY,col,1.5);}}
 function drawItem(it){var g=geom(),px=xPix(it.x!=null?it.x:0),stem=42;
 if(it.type==="point"){
-var fyMag=Math.abs(parseFloat(it.fy)||0),fx=parseFloat(it.fx)||0;
-if(fyMag>1e-6&&Math.abs(fx)<1e-6){drawArrow(px,g.y,px,g.y-stem,"#dc2626",2);drawForceLabel(px,g.y-stem-8,forceLabel(fyMag));}
+var fy=parseFloat(it.fy)||0,fyMag=Math.abs(fy),fx=parseFloat(it.fx)||0;
+if(fyMag>1e-6&&Math.abs(fx)<1e-6){
+if(fy<0){drawArrow(px,g.y,px,g.y+stem,"#dc2626",2);drawForceLabel(px,g.y+stem+16,forceLabel(fyMag));}
+else{drawArrow(px,g.y,px,g.y-stem,"#dc2626",2);drawForceLabel(px,g.y-stem-8,forceLabel(fyMag));}}
 else if(fyMag<1e-6&&Math.abs(fx)>=1e-6){
 if(fx>0){drawArrow(px,g.y,px-stem,g.y,"#64748b",2);drawForceLabel(px-stem/2,g.y-10,forceLabel(Math.abs(fx)));}
 else{drawArrow(px,g.y,px+stem,g.y,"#64748b",2);drawForceLabel(px+stem/2,g.y-10,forceLabel(Math.abs(fx)));}}
-else if(fyMag>1e-6){var h=Math.hypot(fx,fyMag)||1,fx0=px-fx/h*stem,fy0=g.y-fyMag/h*stem;drawArrow(px,g.y,fx0,fy0,"#dc2626",2);drawForceLabel((px+fx0)/2,fy0-8,forceLabel(h));}
+else if(fyMag>1e-6){var h=Math.hypot(fx,fy)||1,fx0=px-fx/h*stem,fy0=g.y-fy/h*stem;drawArrow(px,g.y,fx0,fy0,"#dc2626",2);drawForceLabel((px+fx0)/2,fy<0?fy0+16:fy0-8,forceLabel(h));}
 else drawArrow(px,g.y,px,g.y-stem,"#64748b",2);}
 else if(it.type==="incl"){
 var fx=parseFloat(it.fx)||0,fy=parseFloat(it.fy)||0;
@@ -176,7 +179,7 @@ else if(it.type==="distributed"){var a=xPix(it.x1),b=xPix(it.x2),lo=Math.min(a,b
 drawArrowsToBeam(lo,hi,g,"#c2410c",2);drawForceLabel(lo,g.y-62,forceLabel(Math.abs(parseFloat(it.w)||0)),"#c2410c");}
 if(G.selectedId===it.id){ctx.strokeStyle="#facc15";ctx.lineWidth=3;
 if(it.type==="distributed"){var a2=xPix(it.x1),b2=xPix(it.x2),lo2=Math.min(a2,b2),hi2=Math.max(a2,b2);
-ctx.strokeRect(lo2-6,g.y-50,hi2-lo2+12,52);}else ctx.strokeRect(px-22,g.y-50,44,52);}}
+ctx.strokeRect(lo2-6,g.y-50,hi2-lo2+12,52);}else if(it.type==="point")ctx.strokeRect(px-22,g.y-58,44,116);else ctx.strokeRect(px-22,g.y-50,44,52);}}
 function drawAll(){var g=geom();ctx.clearRect(0,0,g.w,g.h);ctx.fillStyle="#f8fafc";ctx.fillRect(0,0,g.w,g.h);
 ctx.strokeStyle="#0f172a";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(g.pad,g.y);ctx.lineTo(g.w-g.pad,g.y);ctx.stroke();
 ctx.fillStyle="#64748b";ctx.font="11px sans-serif";ctx.textAlign="center";ctx.fillText("0",g.pad,g.y+58);ctx.fillText(String(G.L),g.w-g.pad,g.y+58);
@@ -205,7 +208,26 @@ if(!it){propsEl.style.display="none";syncChainPanel();syncSnapPanel();if(G.tool!
 function addL(lbl,key,st){var lab=document.createElement("label");lab.textContent=lbl;
 var inp=document.createElement("input");inp.type="number";inp.step=st||"any";inp.value=String(it[key]!=null?it[key]:0);
 inp.addEventListener("change",function(){it[key]=parseFloat(inp.value)||0;markCanvasDirty();drawAll();});lab.appendChild(inp);propsEl.appendChild(lab);}
-if(it.type==="point"){addL("Fy+down","fy",0.5);addL("Fx","fx",0.5);}
+if(it.type==="point"){
+var labP=document.createElement("label");labP.textContent="גודל כוח";
+var inpP=document.createElement("input");inpP.type="number";inpP.step="0.5";inpP.min="0";inpP.value=String(Math.abs(parseFloat(it.fy)||0));
+inpP.addEventListener("change",function(){var mag=Math.max(0,parseFloat(inpP.value)||0);it.fy=(parseFloat(it.fy)||0)<0?-mag:mag;markCanvasDirty();drawAll();syncProps();});
+labP.appendChild(inpP);propsEl.appendChild(labP);
+addL("Fx","fx",0.5);
+var prow=document.createElement("div");prow.className="incl-dir-row";
+var psp=document.createElement("span");psp.textContent="כיוון:";prow.appendChild(psp);
+function mkPointDir(sym,dir,tip){
+var b=document.createElement("button");b.type="button";b.className="incl-dir-btn"+(((dir==="down"&&(parseFloat(it.fy)||0)>=0)||(dir==="up"&&(parseFloat(it.fy)||0)<0))?" on":"");b.textContent=sym;b.title=tip;b.setAttribute("data-dir",dir);
+function applyPointDir(ev){if(ev){ev.preventDefault();ev.stopPropagation();}var mag=Math.max(0,Math.abs(parseFloat(it.fy)||0));it.fy=dir==="up"?-mag:mag;markCanvasDirty();drawAll();
+prow.querySelectorAll(".incl-dir-btn").forEach(function(btn){btn.classList.toggle("on",btn.getAttribute("data-dir")===dir);});}
+b.addEventListener("pointerdown",applyPointDir);
+b.addEventListener("click",applyPointDir);prow.appendChild(b);}
+mkPointDir("↑","up","Upward");
+mkPointDir("↓","down","Downward");
+propsEl.appendChild(prow);
+var phint=document.createElement("div");phint.className="incl-dir-hint";
+phint.textContent="הזן גודל חיובי בלבד. החץ קובע אם העומס פועל כלפי מעלה או כלפי מטה.";
+propsEl.appendChild(phint);}
 if(it.type==="incl"){
 normalizeInclItem(it);
 var labF=document.createElement("label");labF.textContent="גודל כוח (רק גודל)";
