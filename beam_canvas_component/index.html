@@ -40,7 +40,7 @@ canvas{display:block;width:100%;height:240px;cursor:crosshair}
 <button type="button" data-tool="del">מחק נבחר</button>
 <button type="button" id="btnClearAll">Clear all</button>
 </div><div id="main"><div id="hint"><strong>איך זה עובד:</strong> לחץ על כלי למעלה → אחר כך <strong>לחץ על הקורה</strong> במקום שבו רוצה את העומס (לא גרירה מרוחקת). <strong>Snap points:</strong> מוסיף X קטן על הקורה; עומסים חדשים ייצמדו לנקודות האלו. את <strong>הסמכים ▲</strong> אפשר לגרור לאורך הקורה. מפולג: בחר כלי &quot;מפולג&quot;, לחץ והחזק, גרור לסוף הקטע, שחרר. <strong>מרחקים מימין:</strong> לחץ על הקצה הימני, גרור שמאלה (המרחק ימלא את השדה), Enter או «הוסף נקודה». בסוף לחץ <strong>Apply</strong>.</div>
-<div id="cvwrap"><canvas id="cv" width="900" height="240"></canvas></div><div id="snapPanel"><h4>Snap points from left</h4><p class="snap-status" id="snapStatus">הזן מרחק מהקצה השמאלי של הקורה, או לחץ ישירות על הקורה.</p><label>x from left [m]<input type="number" id="snapPointInp" step="0.1" min="0" placeholder="e.g. 2.5"/></label><button type="button" id="snapAddBtn">Add point</button><button type="button" id="snapClearBtn">Clear points</button></div><div id="chainPanel"><h4>סימון מרחקים מהקצה הימין (שמאלה)</h4><p class="chain-status" id="chainStatus">בחר כלי, לחץ על הקצה הימני, גרור שמאלה והזן מרחקים.</p><label>מרחק קטע שמאלה [m]<input type="number" id="chainDistInp" step="0.1" min="0" placeholder="למשל 2"/></label><button type="button" id="chainAddBtn">הוסף נקודה</button><button type="button" id="chainStartBtn">התחל מימין</button><button type="button" id="chainResetBtn">איפוס</button></div><div id="props"></div>
+<div id="cvwrap"><canvas id="cv" width="900" height="240"></canvas></div><div id="snapPanel"><h4>Snap points chain</h4><label>מרחק ימינה [m]<input type="number" id="snapPointInp" step="0.1" min="0" placeholder="e.g. 2.5"/></label><button type="button" id="snapAddBtn">Add point</button><button type="button" id="snapClearBtn">Clear points</button><button type="button" id="snapDoneBtn">Done</button></div><div id="chainPanel"><h4>סימון מרחקים מהקצה הימין (שמאלה)</h4><p class="chain-status" id="chainStatus">בחר כלי, לחץ על הקצה הימני, גרור שמאלה והזן מרחקים.</p><label>מרחק קטע שמאלה [m]<input type="number" id="chainDistInp" step="0.1" min="0" placeholder="למשל 2"/></label><button type="button" id="chainAddBtn">הוסף נקודה</button><button type="button" id="chainStartBtn">התחל מימין</button><button type="button" id="chainResetBtn">איפוס</button></div><div id="props"></div>
 <button type="button" id="btnApply">החל שינויים (Apply)</button></div></div>
 <script>
 (function(){var CR="streamlit:componentReady",SCV="streamlit:setComponentValue",SFH="streamlit:setFrameHeight",RE="streamlit:render";
@@ -60,12 +60,12 @@ window.Streamlit=Streamlit;})();
 <script>
 (function(){var cv=document.getElementById("cv"),ctx=cv?cv.getContext("2d"):null,propsEl=document.getElementById("props");
 if(!cv||!ctx){document.body.style.padding="12px";document.body.innerHTML+="<p style=color:#b91c1c>Canvas not available in this browser.</p>";return;}
-var G={L:10,ra:0,rb:10,items:[],snapPoints:[],tool:"move",selectedId:null,drag:null,chain:{active:false,cursorXw:null,marks:[],previewXw:null}};
+var G={L:10,ra:0,rb:10,items:[],snapPoints:[],snapCursorXw:null,tool:"move",selectedId:null,drag:null,chain:{active:false,cursorXw:null,marks:[],previewXw:null}};
 var lastItemsKey="",canvasDirty=false,applyPending=false,applyHoldUntil=0;
 function markCanvasDirty(){canvasDirty=true;}
 function parentItemsKey(arr){try{return JSON.stringify(arr||[]);}catch(ek){return "";}}
 function notifyHeight(){setTimeout(function(){try{Streamlit.setFrameHeight(760);}catch(eh){}},0);}
-function clearAllBeamObjects(){G.items=[];G.snapPoints=[];G.selectedId=null;G.drag=null;G.chain={active:false,cursorXw:null,marks:[],previewXw:null};markCanvasDirty();drawAll();syncProps();syncChainPanel();syncSnapPanel();}
+function clearAllBeamObjects(){G.items=[];G.snapPoints=[];G.snapCursorXw=null;G.selectedId=null;G.drag=null;G.chain={active:false,cursorXw:null,marks:[],previewXw:null};markCanvasDirty();drawAll();syncProps();syncChainPanel();syncSnapPanel();}
 
 function fmtX(v){return Math.round(v*1000)/1000;}
 function ensureChain(){if(!G.chain)G.chain={active:false,cursorXw:null,marks:[],previewXw:null};}
@@ -81,10 +81,12 @@ var rem=G.chain.active&&G.chain.cursorXw!=null?G.chain.cursorXw:0;
 st.textContent=G.chain.active?"נקודה שמאלית נוכחית: x="+fmtX(rem)+" m (נשאר עד הקצה השמאלי: "+fmtX(rem)+" m). הזן מרחק ולחץ הוסף או Enter."
 :"לחץ על הקצה הימני של הקורה (ליד L) או כפתור התחל מימין.";}
 function syncSnapPanel(){var el=document.getElementById("snapPanel");if(!el)return;var on=G.tool==="snap_pt";
-el.classList.toggle("on",on);if(!on)return;var inp=document.getElementById("snapPointInp");if(inp)inp.max=String(G.L);
-var st=document.getElementById("snapStatus");if(st){var n=(G.snapPoints||[]).length;st.textContent="הזן x מהקצה השמאלי בתחום 0 עד "+fmtX(G.L)+" m. מספר נקודות Snap: "+n+".";}}
-function addSnapPointFromInput(){var inp=document.getElementById("snapPointInp");if(!inp)return;var x=parseFloat(inp.value);
-if(isNaN(x))return;addSnapPoint(x);inp.value="";inp.focus();syncSnapPanel();}
+el.classList.toggle("on",on);if(!on)return;var inp=document.getElementById("snapPointInp"),base=currentSnapBaseX();if(inp)inp.max=String(Math.max(0,G.L-base));}
+function currentSnapBaseX(){if(G.snapCursorXw!=null)return clampX(parseFloat(G.snapCursorXw)||0);
+if(G.snapPoints&&G.snapPoints.length)return clampX(parseFloat(G.snapPoints[G.snapPoints.length-1])||0);return 0;}
+function addSnapPointFromInput(){var inp=document.getElementById("snapPointInp");if(!inp)return;var d=parseFloat(inp.value);
+if(isNaN(d))return;var base=currentSnapBaseX(),target=clampX(base+Math.max(0,d));if(target<=base+1e-9&&base<G.L-1e-9)return;
+G.snapCursorXw=target;addSnapPoint(target);inp.value="";inp.focus();syncSnapPanel();}
 function drawChainDim(g){ensureChain();if(!G.chain.active&&!G.chain.marks.length)return;var yD=g.y+70;
 var xR=xPix(G.L);ctx.strokeStyle="#0f766e";ctx.fillStyle="#047857";ctx.lineWidth=1.5;ctx.font="11px sans-serif";
 ctx.beginPath();ctx.moveTo(xR,yD);ctx.lineTo(xPix(0),yD);ctx.stroke();
@@ -112,7 +114,7 @@ G.snapPoints.push(xw);G.snapPoints.sort(function(a,b){return a-b;});markCanvasDi
 function drawSnapPoints(g){if(!G.snapPoints||!G.snapPoints.length)return;ctx.save();ctx.strokeStyle="#0f172a";ctx.lineWidth=2;ctx.fillStyle="#0f172a";ctx.font="10px sans-serif";ctx.textAlign="center";
 for(var i=0;i<G.snapPoints.length;i++){var px=xPix(clampX(parseFloat(G.snapPoints[i])||0)),s=5;ctx.beginPath();ctx.moveTo(px-s,g.y-s);ctx.lineTo(px+s,g.y+s);ctx.moveTo(px+s,g.y-s);ctx.lineTo(px-s,g.y+s);ctx.stroke();ctx.fillText(fmtX(G.snapPoints[i]),px,g.y+18);}ctx.restore();}
 function hitSupport(which,mx,my){var g=geom(),xw=which==="ra"?G.ra:G.rb,px=xPix(xw);
-return Math.abs(mx-px)<=18&&Math.abs(my-g.y)<=35;}
+return Math.abs(mx-px)<=24&&my>=g.y-8&&my<=g.y+62;}
 function findItem(mx,my){var g=geom();
 for(var i=G.items.length-1;i>=0;i--){var it=G.items[i],px=xPix(it.x!=null?it.x:0);
 if(it.type==="point"){if(Math.abs(mx-px)<14&&my>g.y-80&&my<g.y+80)return it;}
@@ -121,8 +123,19 @@ else if(it.type==="moment"){if(Math.abs(mx-px)<14&&my>g.y-70&&my<g.y+25)return i
 else if(it.type==="distributed"){var a=xPix(it.x1),b=xPix(it.x2),lo=Math.min(a,b),hi=Math.max(a,b);
 if(mx>=lo-4&&mx<=hi+4&&my>g.y-75&&my<g.y-8)return it;}}
 return null;}
-function drawSup(xw,col,lab){var g=geom(),px=xPix(xw);ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(px,g.y);ctx.lineTo(px-12,g.y+26);ctx.lineTo(px+12,g.y+26);ctx.closePath();
-ctx.fill();ctx.strokeStyle="#333";ctx.stroke();ctx.fillStyle="#111";ctx.font="12px sans-serif";ctx.textAlign="center";ctx.fillText(lab,px,g.y+42);}
+function drawSup(xw,col,lab){var g=geom(),px=xPix(xw),half=18,h=39,baseY=g.y+h;
+ctx.save();ctx.strokeStyle="#111827";ctx.fillStyle="#f8fafc";ctx.lineWidth=2.2;ctx.lineJoin="round";
+ctx.beginPath();ctx.moveTo(px,g.y);ctx.lineTo(px-half,baseY);ctx.lineTo(px+half,baseY);ctx.closePath();ctx.fill();ctx.stroke();
+ctx.save();ctx.beginPath();ctx.moveTo(px,g.y);ctx.lineTo(px-half,baseY);ctx.lineTo(px+half,baseY);ctx.closePath();ctx.clip();
+ctx.setLineDash([4,3]);ctx.lineWidth=1.1;ctx.strokeStyle="#334155";
+for(var k=-half;k<=half+8;k+=7){ctx.beginPath();ctx.moveTo(px+k-12,baseY);ctx.lineTo(px+k+18,g.y+3);ctx.stroke();}
+ctx.restore();
+ctx.setLineDash([]);ctx.lineWidth=2;ctx.strokeStyle="#111827";
+if(lab==="A"){
+for(var i=0;i<3;i++){var x0=px-15+i*11;ctx.beginPath();ctx.moveTo(x0,baseY+1);ctx.lineTo(x0-8,baseY+12);ctx.stroke();}
+}else{
+ctx.fillStyle="#f8fafc";for(var j=0;j<2;j++){var cx=px-8+j*16;ctx.beginPath();ctx.arc(cx,baseY+5,5,0,Math.PI*2);ctx.fill();ctx.stroke();}}
+ctx.fillStyle="#111827";ctx.font="12px sans-serif";ctx.textAlign="center";ctx.fillText(lab,px,baseY+31);ctx.restore();}
 function drawArrow(tipX,tipY,fromX,fromY,col,lw){var dx=tipX-fromX,dy=tipY-fromY,len=Math.hypot(dx,dy);
 if(len<1)return;var ux=dx/len,uy=dy/len,head=10,hw=5;
 ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=lw||2;ctx.lineCap="round";
@@ -182,7 +195,7 @@ if(it.type==="distributed"){var a2=xPix(it.x1),b2=xPix(it.x2),lo2=Math.min(a2,b2
 ctx.strokeRect(lo2-6,g.y-50,hi2-lo2+12,52);}else if(it.type==="point")ctx.strokeRect(px-22,g.y-58,44,116);else ctx.strokeRect(px-22,g.y-50,44,52);}}
 function drawAll(){var g=geom();ctx.clearRect(0,0,g.w,g.h);ctx.fillStyle="#f8fafc";ctx.fillRect(0,0,g.w,g.h);
 ctx.strokeStyle="#0f172a";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(g.pad,g.y);ctx.lineTo(g.w-g.pad,g.y);ctx.stroke();
-ctx.fillStyle="#64748b";ctx.font="11px sans-serif";ctx.textAlign="center";ctx.fillText("0",g.pad,g.y+58);ctx.fillText(String(G.L),g.w-g.pad,g.y+58);
+ctx.fillStyle="#64748b";ctx.font="11px sans-serif";ctx.textAlign="right";ctx.fillText("0",g.pad-14,g.y-8);ctx.textAlign="left";ctx.fillText(String(G.L),g.w-g.pad+14,g.y-8);
 drawSup(G.ra,"#2563eb","A");drawSup(G.rb,"#16a34a","B");
 drawSnapPoints(g);
 for(var i=0;i<G.items.length;i++)drawItem(G.items[i]);
@@ -209,13 +222,31 @@ function addL(lbl,key,st){var lab=document.createElement("label");lab.textConten
 var inp=document.createElement("input");inp.type="number";inp.step=st||"any";inp.value=String(it[key]!=null?it[key]:0);
 inp.addEventListener("change",function(){it[key]=parseFloat(inp.value)||0;markCanvasDirty();drawAll();});lab.appendChild(inp);propsEl.appendChild(lab);}
 if(it.type==="point"){
+var isAxialPoint=Math.abs(parseFloat(it.fy)||0)<1e-6&&Math.abs(parseFloat(it.fx)||0)>1e-6;
 var labP=document.createElement("label");labP.textContent="גודל כוח";
 var inpP=document.createElement("input");inpP.type="number";inpP.step="0.5";inpP.min="0";inpP.value=String(Math.abs(parseFloat(it.fy)||0));
-inpP.addEventListener("change",function(){var mag=Math.max(0,parseFloat(inpP.value)||0);it.fy=(parseFloat(it.fy)||0)<0?-mag:mag;markCanvasDirty();drawAll();syncProps();});
+if(isAxialPoint)inpP.value=String(Math.abs(parseFloat(it.fx)||0));
+inpP.addEventListener("change",function(){var mag=Math.max(0,parseFloat(inpP.value)||0);
+if(isAxialPoint){it.fx=(parseFloat(it.fx)||0)<0?-mag:mag;it.fy=0;}else{it.fy=(parseFloat(it.fy)||0)<0?-mag:mag;}
+markCanvasDirty();drawAll();syncProps();});
 labP.appendChild(inpP);propsEl.appendChild(labP);
-addL("Fx","fx",0.5);
 var prow=document.createElement("div");prow.className="incl-dir-row";
 var psp=document.createElement("span");psp.textContent="כיוון:";prow.appendChild(psp);
+if(isAxialPoint){
+function mkAxialDir(sym,dir,tip){
+var b=document.createElement("button");b.type="button";b.className="incl-dir-btn"+(((dir==="right"&&(parseFloat(it.fx)||0)>=0)||(dir==="left"&&(parseFloat(it.fx)||0)<0))?" on":"");b.textContent=sym;b.title=tip;b.setAttribute("data-dir",dir);
+function applyAxialDir(ev){if(ev){ev.preventDefault();ev.stopPropagation();}var mag=Math.max(0,Math.abs(parseFloat(it.fx)||0));it.fx=dir==="left"?-mag:mag;it.fy=0;markCanvasDirty();drawAll();
+prow.querySelectorAll(".incl-dir-btn").forEach(function(btn){btn.classList.toggle("on",btn.getAttribute("data-dir")===dir);});}
+b.addEventListener("pointerdown",applyAxialDir);
+b.addEventListener("click",applyAxialDir);prow.appendChild(b);}
+mkAxialDir("←","left","Left");
+mkAxialDir("→","right","Right");
+propsEl.appendChild(prow);
+var ahint=document.createElement("div");ahint.className="incl-dir-hint";
+ahint.textContent="הזן גודל חיובי בלבד. החץ קובע אם העומס הצירי פועל ימינה או שמאלה.";
+propsEl.appendChild(ahint);
+}else{
+addL("Fx","fx",0.5);
 function mkPointDir(sym,dir,tip){
 var b=document.createElement("button");b.type="button";b.className="incl-dir-btn"+(((dir==="down"&&(parseFloat(it.fy)||0)>=0)||(dir==="up"&&(parseFloat(it.fy)||0)<0))?" on":"");b.textContent=sym;b.title=tip;b.setAttribute("data-dir",dir);
 function applyPointDir(ev){if(ev){ev.preventDefault();ev.stopPropagation();}var mag=Math.max(0,Math.abs(parseFloat(it.fy)||0));it.fy=dir==="up"?-mag:mag;markCanvasDirty();drawAll();
@@ -227,7 +258,7 @@ mkPointDir("↓","down","Downward");
 propsEl.appendChild(prow);
 var phint=document.createElement("div");phint.className="incl-dir-hint";
 phint.textContent="הזן גודל חיובי בלבד. החץ קובע אם העומס פועל כלפי מעלה או כלפי מטה.";
-propsEl.appendChild(phint);}
+propsEl.appendChild(phint);}}
 if(it.type==="incl"){
 normalizeInclItem(it);
 var labF=document.createElement("label");labF.textContent="גודל כוח (רק גודל)";
@@ -270,7 +301,7 @@ var incoming=Array.isArray(a.items)?a.items:[],key=parentItemsKey(incoming);
 if(key!==lastItemsKey||!canvasDirty){
 G.items=incoming.map(function(raw){var o=Object.assign({},raw);if(!o.id)o.id=uid();if(o.type==="inclined")o.type="incl";if(o.type==="incl")normalizeInclItem(o);return o;});
 lastItemsKey=key;canvasDirty=false;}
-if(Array.isArray(a.snapPoints)&&!canvasDirty){G.snapPoints=a.snapPoints.map(function(x){return clampX(parseFloat(x)||0);}).sort(function(a,b){return a-b;});}
+if(Array.isArray(a.snapPoints)&&!canvasDirty){G.snapPoints=a.snapPoints.map(function(x){return clampX(parseFloat(x)||0);}).sort(function(a,b){return a-b;});G.snapCursorXw=G.snapPoints.length?G.snapPoints[G.snapPoints.length-1]:null;}
 if(Array.isArray(a.chainMarks)&&a.chainMarks.length&&!canvasDirty){
 G.chain.active=true;G.chain.marks=a.chainMarks.map(function(m){return{id:uid(),seg:m.seg,x:m.x};});
 G.chain.cursorXw=G.chain.marks[G.chain.marks.length-1].x;G.chain.previewXw=null;}
@@ -343,7 +374,8 @@ document.getElementById("chainResetBtn").addEventListener("click",resetChainMark
 document.getElementById("chainDistInp").addEventListener("keydown",function(e){
 if(e.key==="Enter"){e.preventDefault();document.getElementById("chainAddBtn").click();}});
 document.getElementById("snapAddBtn").addEventListener("click",addSnapPointFromInput);
-document.getElementById("snapClearBtn").addEventListener("click",function(){G.snapPoints=[];markCanvasDirty();drawAll();syncSnapPanel();});
+document.getElementById("snapClearBtn").addEventListener("click",function(){G.snapPoints=[];G.snapCursorXw=null;markCanvasDirty();drawAll();syncSnapPanel();});
+document.getElementById("snapDoneBtn").addEventListener("click",function(){switchToMoveTool();});
 document.getElementById("snapPointInp").addEventListener("keydown",function(e){
 if(e.key==="Enter"){e.preventDefault();document.getElementById("snapAddBtn").click();}});
 Streamlit.setComponentReady();

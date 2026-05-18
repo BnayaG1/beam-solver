@@ -208,7 +208,7 @@ def ensure_beam_session_defaults() -> None:
     if "beam_rb_pos" not in st.session_state:
         st.session_state.beam_rb_pos = float(st.session_state.beam_L)
     if "beam_load_count" not in st.session_state:
-        st.session_state.beam_load_count = 1
+        st.session_state.beam_load_count = 0
     if "beam_chain_marks" not in st.session_state:
         st.session_state.beam_chain_marks = []
     if "beam_snap_points" not in st.session_state:
@@ -798,6 +798,7 @@ def build_internal_force_figure(
     ax0.fill_between(xs, normals_plot, 0, step="post", color="#0f766e", alpha=0.14)
     ax0.vlines([0.0, Lf], [0.0, 0.0], [normals_plot[0], normals_plot[-1]], color="#0f766e", linewidth=2.3)
     ax0.axhline(0, color="#020617", linestyle="-", linewidth=2.0)
+    ax0.invert_yaxis()
     ax0.set_ylabel("Nx [kN]")
     ax0.set_title(
         "דיאגרמת כוח צירי Nx — ערך שלילי בעומס אופקי מוצג כלפי מעלה, וחיובי כלפי מטה"

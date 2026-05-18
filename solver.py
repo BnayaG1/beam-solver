@@ -155,9 +155,9 @@ def normal_force(x: float, loads: List[dict], ra_x: float, ra_pos: float) -> flo
         N += ra_x
     for load in loads:
         if load["type"] == "inclined" and x >= load["x"]:
-            N -= load["Fx"]
+            N += load["Fx"]
         if load["type"] == "point" and x >= load["x"]:
-            N -= float(load.get("Fx", 0.0))
+            N += float(load.get("Fx", 0.0))
     return N
 
 
