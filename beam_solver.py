@@ -40,11 +40,16 @@ def main() -> None:
     if st.session_state.pop("vision_flash_ok", False):
         st.success("הנתונים מהתמונה הוזנו לשדות בסרגל.")
 
-    L, ra_pos, rb_pos, load_count = beam_ui.render_geometry_sidebar()
-    beam_ui.render_load_expanders(L, load_count)
-    loads = beam_ui.loads_from_sidebar_session(L, load_count)
+    L, ra_pos, rb_pos, load_count = beam_ui.render_canvas_dashboard_controls()
+    loads = beam_ui.get_loads_for_analysis(L, load_count)
 
     beam_ui.render_beam_board(L, ra_pos, rb_pos, loads)
+
+    if st.session_state.get("beam_support_mode") == "fixed":
+        cantilever_result = solver.solve_cantilever_beam(loads, L)
+        beam_ui.render_cantilever_results(loads, L, cantilever_result)
+        beam_ui.render_vision_section()
+        return
 
     if ra_pos == rb_pos:
         st.error("יש להפריד בין מיקומי הסמכים.")

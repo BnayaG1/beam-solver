@@ -67,7 +67,10 @@ def inject_ui_styles() -> None:
         .block-container {
             padding-top: 1.25rem;
             padding-bottom: 2.5rem;
-            max-width: 1320px;
+            max-width: none;
+            width: 100%;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
         }
 
         /* —— Sidebar: light tablet panel —— */
@@ -281,6 +284,9 @@ def inject_ui_styles() -> None:
         [data-testid="stFileUploader"] {
             border-radius: 14px;
         }
+        section[data-testid="stSidebar"] {
+            display: none !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -322,6 +328,8 @@ def ensure_beam_session_defaults() -> None:
         st.session_state.beam_chain_marks = []
     if "beam_snap_points" not in st.session_state:
         st.session_state.beam_snap_points = []
+    if "beam_support_mode" not in st.session_state:
+        st.session_state.beam_support_mode = "simple"
     pending_canvas_scene = st.session_state.pop("_beam_canvas_pending_scene", None)
     if isinstance(pending_canvas_scene, dict):
         apply_canvas_scene_to_session(pending_canvas_scene)
@@ -519,6 +527,76 @@ def loads_from_sidebar_session(L: float, load_count: int) -> List[dict]:
     return loads
 
 
+def canvas_export_to_loads(raw_loads: List[Any], L: float) -> List[dict]:
+    """ממיר עומסים מייצוא לוח השרטוט לפורמט solver."""
+    loads: List[dict] = []
+    if not isinstance(raw_loads, list):
+        return loads
+    for lu in raw_loads:
+        if not isinstance(lu, dict):
+            continue
+        t = str(lu.get("type", "point")).lower()
+        if t == "point":
+            fy_raw = float(lu.get("fy", lu.get("Fy", 10.0)))
+            fx = float(lu.get("fx", lu.get("Fx", 0.0)))
+            d: Dict[str, Any] = {
+                "type": "point",
+                "x": max(0.0, min(L, float(lu.get("x", L / 2)))),
+                "Fy": fy_raw if fy_raw < 0 else -abs(fy_raw),
+            }
+            if abs(fx) > 1e-12:
+                d["Fx"] = fx
+            loads.append(d)
+        elif t == "distributed":
+            x1 = max(0.0, min(L, float(lu.get("x1", 0.0))))
+            x2 = max(0.0, min(L, float(lu.get("x2", L))))
+            if x2 < x1:
+                x1, x2 = x2, x1
+            w_mag = max(0.0, float(lu.get("w", 1.0)))
+            loads.append(
+                {
+                    "type": "distributed",
+                    "x1": x1,
+                    "x2": x2,
+                    "w": -w_mag,
+                }
+            )
+        elif t == "moment":
+            loads.append(
+                {
+                    "type": "moment",
+                    "x": max(0.0, min(L, float(lu.get("x", L / 2)))),
+                    "M": float(lu.get("M", 0.0)),
+                }
+            )
+        elif t in ("inclined", "incl"):
+            loads.append(
+                {
+                    "type": "inclined",
+                    "x": max(0.0, min(L, float(lu.get("x", L / 2)))),
+                    "Fx": float(lu.get("fx", lu.get("Fx", 0.0))),
+                    "Fy": float(lu.get("fy", lu.get("Fy", 10.0))),
+                }
+            )
+    return loads
+
+
+def get_loads_for_analysis(L: float, load_count: int) -> List[dict]:
+    """עומסים לחישובים ולמחברת — מסרגל, מ-Apply אחרון, או מייצוא לוח אחרון."""
+    loads = loads_from_sidebar_session(L, load_count)
+    if loads:
+        return loads
+    cached = st.session_state.get("beam_canvas_loads")
+    if isinstance(cached, list) and cached:
+        return list(cached)
+    exp = st.session_state.get("_beam_canvas_last_export")
+    if isinstance(exp, list) and exp:
+        converted = canvas_export_to_loads(exp, L)
+        if converted:
+            return converted
+    return []
+
+
 def internal_loads_to_canvas_items(loads: List[dict]) -> List[dict]:
     items: List[dict] = []
     for i, ld in enumerate(loads):
@@ -567,6 +645,8 @@ def internal_loads_to_canvas_items(loads: List[dict]) -> List[dict]:
 def apply_canvas_scene_to_session(result: Dict[str, Any]) -> None:
     Lm = max(0.1, float(result.get("L", 10.0)))
     st.session_state["beam_L"] = Lm
+    support_mode = str(result.get("supportMode", "simple")).lower()
+    st.session_state["beam_support_mode"] = "fixed" if support_mode == "fixed" else "simple"
     ra = max(0.0, min(Lm, float(result.get("ra", 0.0))))
     rb = max(0.0, min(Lm, float(result.get("rb", Lm))))
     st.session_state["beam_ra_pos"] = ra
@@ -622,13 +702,14 @@ def apply_canvas_scene_to_session(result: Dict[str, Any]) -> None:
             except (TypeError, ValueError):
                 continue
         st.session_state["beam_snap_points"] = sorted(set(snap_points))
+    st.session_state["beam_canvas_loads"] = loads_from_sidebar_session(Lm, n)
 
 
 @st.cache_resource
-def _beam_canvas_component_ctor(root_str: str, _mtime: float):  # type: ignore[misc]
+def _beam_canvas_component_ctor(root_str: str, component_name: str):  # type: ignore[misc]
     import streamlit.components.v1 as components
 
-    return components.declare_component("beam_solver_beam_board", path=root_str)
+    return components.declare_component(component_name, path=root_str)
 
 
 def get_beam_canvas_component():
@@ -637,10 +718,11 @@ def get_beam_canvas_component():
     if not html.is_file():
         return None
     try:
-        mt = float(html.stat().st_mtime)
+        mt = int(html.stat().st_mtime_ns)
     except OSError:
-        mt = 0.0
-    return _beam_canvas_component_ctor(str(root.resolve()), mt)
+        mt = 0
+    st.session_state["_beam_canvas_component_mtime_ns"] = mt
+    return _beam_canvas_component_ctor(str(root.resolve()), f"beam_solver_beam_board_{mt}")
 
 
 def render_geometry_sidebar() -> Tuple[float, float, float, int]:
@@ -848,11 +930,24 @@ def render_load_expanders(L: float, load_count: int) -> None:
                 )
 
 
+def render_canvas_dashboard_controls() -> Tuple[float, float, float, int]:
+    L = max(0.1, float(st.session_state.get("beam_L", 10.0)))
+    if st.session_state.beam_ra_pos > L:
+        st.session_state.beam_ra_pos = L
+    if st.session_state.beam_rb_pos > L:
+        st.session_state.beam_rb_pos = L
+    return (
+        L,
+        float(st.session_state.beam_ra_pos),
+        float(st.session_state.beam_rb_pos),
+        int(st.session_state.beam_load_count),
+    )
+
+
 def render_beam_board(L: float, ra_pos: float, rb_pos: float, loads: List[dict]) -> None:
     st.markdown('<h2 class="beam-section-title">לוח שרטוט</h2>', unsafe_allow_html=True)
     st.markdown(
-        '<p class="beam-subtle">בחר כלי בשורת הכלים, לחץ על הקורה, ואז <strong>Apply</strong>. '
-        "רחף על כפתור לקבלת הסבר קצר.</p>",
+        '<p class="beam-subtle">רחף על כפתור בשורת הכלים לקבלת הסבר קצר.</p>',
         unsafe_allow_html=True,
     )
     st.markdown('<div class="beam-panel beam-board-shell">', unsafe_allow_html=True)
@@ -873,19 +968,37 @@ def render_beam_board(L: float, ra_pos: float, rb_pos: float, loads: List[dict])
                 items=items,
                 chainMarks=chain_marks,
                 snapPoints=snap_points,
-                key="beam_board",
+                supportMode=st.session_state.get("beam_support_mode", "simple"),
+                key=f"beam_board_{st.session_state.get('_beam_canvas_component_mtime_ns', 0)}",
                 default=None,
-                height=820,
+                height=980,
             )
         except Exception as ex:
             st.warning("רכיב לוח: " + str(ex))
             result = None
-        if isinstance(result, dict) and result.get("applied"):
-            ts = result.get("ts")
-            if ts != st.session_state.get("_beam_canvas_last_ts"):
-                st.session_state["_beam_canvas_last_ts"] = ts
-                st.session_state["_beam_canvas_pending_scene"] = result
-                st.rerun()
+        if isinstance(result, dict):
+            raw_lds = result.get("loads")
+            if isinstance(raw_lds, list):
+                st.session_state["_beam_canvas_last_export"] = raw_lds
+            # שינוי אורך קורה בלוח בלי Apply: נשמור ב-session כדי למנוע קפיצה חזרה ל-10.
+            if not result.get("applied") and "L" in result:
+                new_l = max(0.1, float(result.get("L", st.session_state.get("beam_L", 10.0))))
+                old_l = float(st.session_state.get("beam_L", 10.0))
+                st.session_state["beam_L"] = new_l
+                st.session_state["beam_ra_pos"] = max(
+                    0.0, min(new_l, float(result.get("ra", st.session_state.get("beam_ra_pos", 0.0))))
+                )
+                st.session_state["beam_rb_pos"] = max(
+                    0.0, min(new_l, float(result.get("rb", st.session_state.get("beam_rb_pos", new_l))))
+                )
+                if abs(new_l - old_l) > 1e-6:
+                    st.rerun()
+            if result.get("applied"):
+                ts = result.get("ts")
+                if ts != st.session_state.get("_beam_canvas_last_ts"):
+                    st.session_state["_beam_canvas_last_ts"] = ts
+                    st.session_state["_beam_canvas_pending_scene"] = result
+                    st.rerun()
     else:
         board_root = Path(__file__).resolve().parent / "beam_canvas_component"
         st.info(f"חסר `beam_canvas_component/index.html` — נתיב: `{board_root}`")
@@ -1044,7 +1157,7 @@ def render_results(
     )
 
     t1, t2, t3, t4 = st.tabs(
-        ["דיאגרמות", "שלבי חישוב / JSON", "נקודות בדיקה", "מחברת פתורה"]
+        ["דיאגרמות", "שלבי חישוב / JSON", "נקודות בדיקה", "פתרון מחברת"]
     )
     with t1:
         try:
@@ -1088,3 +1201,116 @@ def render_results(
         beam_notebook.render_solved_notebook(
             loads, L, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y
         )
+
+
+def render_cantilever_results(loads: List[dict], L: float, result: Dict[str, Any]) -> None:
+    steps = solver.get_cantilever_calculation_steps(loads, L, result)
+    payload: Dict[str, Any] = {
+        "schema": "beam_solver.v1_cantilever_fixed_left",
+        "model": {"A": "fixed", "free_end": "right"},
+        "geometry": {"L_m": L, "x_A": 0.0},
+        "loads": loads,
+        "reactions": {
+            "R_Ax": result["R_Ax"],
+            "R_Ay": result["R_Ay"],
+            "M_A": result["M_A"],
+        },
+        "calculation_steps": steps,
+    }
+    xs = result["xs"]
+    normals = result["normal"]
+    shears = result["shear"]
+    moments = result["moment"]
+    mmx = float(moments[int(np.argmax(np.abs(moments)))]) if len(moments) else 0.0
+    imx = int(np.argmax(np.abs(moments))) if len(moments) else 0
+
+    try:
+        plt.style.use("seaborn-v0_8-whitegrid")
+    except OSError:
+        pass
+    fig, (ax0, ax1, ax2) = plt.subplots(3, 1, figsize=(11.5, 11), sharex=True)
+    fig.patch.set_facecolor("#f8fafc")
+    x_pad = max(0.05, 0.02 * float(L))
+
+    def polish_axis(ax: Any) -> None:
+        ax.set_facecolor("#ffffff")
+        ax.grid(True, color="#94a3b8", alpha=0.22, linewidth=0.8)
+        ax.set_axisbelow(True)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#cbd5e1")
+        ax.spines["bottom"].set_color("#cbd5e1")
+        ax.tick_params(colors="#475569", labelsize=10)
+
+    ax0.step(xs, normals, where="post", color="#0f766e", linewidth=2.3)
+    ax0.fill_between(xs, normals, 0, step="post", color="#0f766e", alpha=0.14)
+    ax0.axhline(0, color="#020617", linestyle="-", linewidth=2.0)
+    ax0.invert_yaxis()
+    ax0.set_ylabel("Nx [kN]")
+    ax0.set_title("דיאגרמת כוח צירי Nx — זיז רתום משמאל")
+    ax0.set_xlim(-x_pad, float(L) + x_pad)
+
+    ax1.step(xs, shears, where="post", color="#2563eb", linewidth=2.3)
+    ax1.fill_between(xs, shears, 0, step="post", color="#2563eb", alpha=0.13)
+    ax1.axhline(0, color="#020617", linestyle="-", linewidth=2.0)
+    ax1.set_ylabel("V [kN]")
+    ax1.set_title("דיאגרמת גזירה V — תנאי שפה: קצה חופשי ב-x=L")
+    ax1.set_xlim(-x_pad, float(L) + x_pad)
+
+    ax2.plot(xs, moments, color="#dc2626", linewidth=2.5)
+    ax2.fill_between(xs, moments, 0, color="#dc2626", alpha=0.12)
+    ax2.axhline(0, color="#020617", linestyle="-", linewidth=2.0)
+    ax2.invert_yaxis()
+    ax2.set_ylabel("M [kN·m]")
+    ax2.set_xlabel("x [m] (מקור ב־0 — הריתום)")
+    ax2.set_title("דיאגרמת מומנט כפיפה M — זיז")
+    ax2.set_xlim(-x_pad, float(L) + x_pad)
+    for ax in (ax0, ax1, ax2):
+        polish_axis(ax)
+    plt.tight_layout()
+
+    st.markdown("---")
+    st.markdown('<h2 class="beam-section-title">תוצאות חישוב — זיז רתום</h2>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="beam-subtle">מודל נפרד: ריתום ב־x=0 וקצה חופשי ב־x=L.</p>',
+        unsafe_allow_html=True,
+    )
+    r1, r2, r3 = st.columns(3)
+    r1.metric("R_Ax (צירי)", solver.format_number(float(result["R_Ax"])))
+    r2.metric("R_Ay (אנכי)", solver.format_number(float(result["R_Ay"])))
+    r3.metric("M_A (מומנט ריתום)", solver.format_number(float(result["M_A"])))
+
+    t1, t2, t3, t4 = st.tabs(["דיאגרמות", "שלבי חישוב / JSON", "נקודות בדיקה", "פתרון מחברת"])
+    with t1:
+        try:
+            st.pyplot(fig, use_container_width=True)
+        except TypeError:
+            st.pyplot(fig)
+        plt.close(fig)
+        st.metric(
+            "|M| מקסימלי (בדגימה)",
+            solver.format_number(mmx),
+            delta=f"x = {solver.format_number(float(xs[imx]))} m" if len(xs) else "x = 0 m",
+        )
+    with t2:
+        c1, c2 = st.columns(2)
+        c1.text_area("שלבים", "\n".join(steps), height=400)
+        c2.text_area("JSON", json.dumps(payload, ensure_ascii=False, indent=2), height=400)
+    with t3:
+        fixed_moment = float(result["diagram_fixed_moment"])
+        ry = float(result["R_Ay"])
+        for xv in (0.0, L * 0.25, L * 0.5, L * 0.75, L):
+            st.text(
+                f"x={solver.format_number(xv)}  "
+                f"V={solver.format_number(solver.cantilever_shear_force(xv, loads, ry))}  "
+                f"M={solver.format_number(solver.cantilever_bending_moment(xv, loads, ry, fixed_moment))}"
+            )
+    with t4:
+        if hasattr(beam_notebook, "_load_live_notebook_module"):
+            nb = beam_notebook._load_live_notebook_module()
+            if hasattr(nb, "render_cantilever_notebook"):
+                nb.render_cantilever_notebook(loads, L, result)
+            else:
+                st.info("מחברת ריתום עדיין לא זמינה בקובץ הנוכחי.")
+        else:
+            st.info("מחברת ריתום עדיין לא זמינה בקובץ הנוכחי.")

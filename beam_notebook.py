@@ -110,24 +110,28 @@ html, body {{
   width: 50%;
   min-width: 0;
   height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: transparent;
 }}
 .nb-beam-zone {{
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  height: 100%;
+  height: auto;
   width: 100%;
   overflow: hidden;
   background: transparent;
 }}
 .nb-beam-zone img {{
-  width: 100%;
-  height: 100%;
+  width: calc(100% + 22px);
+  height: auto;
   object-fit: contain;
-  object-position: center top;
+  object-position: left top;
+  margin-left: -22px;
+  transform: scale(0.8) translateX(99px);
+  transform-origin: left top;
   display: block;
   background: transparent;
 }}
@@ -201,11 +205,28 @@ html, body {{
 }}
 .nb-line.nb-eq {{
   color: {_CHARCOAL};
-  font-weight: 500;
+  font-weight: 300;
+}}
+.nb-line.nb-eq-oneline {{
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  scrollbar-width: thin;
+}}
+.nb-line.nb-eq-oneline::-webkit-scrollbar {{
+  height: 4px;
+}}
+.nb-calc-block {{
+  flex: 0 0 auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
 }}
 .nb-line.nb-eq-start {{
   margin-top: 20px;
-  font-weight: 700;
+  font-weight: 400;
   color: {_INK};
 }}
 .nb-line.nb-eq-start:first-child {{
@@ -220,21 +241,21 @@ html, body {{
 }}
 .nb-line.nb-delta {{
   color: {_BRIGHT_GREEN};
-  font-weight: 600;
+  font-weight: 350;
   font-size: 10.5pt;
 }}
 .nb-line.nb-shear {{
   color: {_BLUE};
-  font-weight: 600;
+  font-weight: 350;
 }}
 .nb-line.nb-moment {{
   color: {_RED};
-  font-weight: 600;
+  font-weight: 350;
 }}
 .nb-line.nb-note {{
   color: {_ORANGE_NOTE};
   font-size: 9pt;
-  font-weight: 500;
+  font-weight: 300;
   line-height: 2.05;
   margin-top: 10px;
   padding-right: 4px;
@@ -242,7 +263,7 @@ html, body {{
 }}
 .nb-sym {{
   font-family: 'Rubik', 'Times New Roman', serif;
-  font-weight: 600;
+  font-weight: 400;
   font-size: 1.05em;
   line-height: 1;
   vertical-align: -0.06em;
@@ -270,6 +291,74 @@ html, body {{
   background: rgba(226, 240, 217, 0.42);
   border: 1px solid rgba(143, 173, 122, 0.75);
   color: {_CHARCOAL};
+}}
+.nb-eq-tail {{
+  white-space: nowrap;
+  display: inline;
+}}
+.nb-line.nb-eq .nb-box.nb-box-answer {{
+  margin: 0 2px;
+  vertical-align: baseline;
+}}
+.nb-forces-zone {{
+  flex: 0 0 auto;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  width: 100%;
+  overflow: hidden;
+}}
+.nb-forces-zone img {{
+  width: calc(100% + 22px);
+  height: auto;
+  display: block;
+  background: transparent;
+  object-fit: contain;
+  object-position: left top;
+  margin-left: -22px;
+  transform: scale(0.8) translateX(99px);
+  transform-origin: left top;
+}}
+.nb-point-calc-scroll {{
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}}
+.nb-point-calc-scroll .nb-point-grid {{
+  margin-top: 0;
+  align-items: start;
+}}
+.nb-point-grid {{
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}}
+.nb-point-col {{
+  border: 1px dashed rgba(15, 23, 42, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  padding: 8px 10px;
+  min-width: 0;
+}}
+.nb-point-col h4 {{
+  margin: 0 0 6px 0;
+  font-size: 10pt;
+  font-weight: 700;
+  color: {_INK};
+  direction: ltr;
+  text-align: left;
+}}
+.nb-point-col .nb-line {{
+  margin: 3px 0;
+  padding: 0;
+  line-height: 1.85;
+  font-size: 9.5pt;
+  direction: ltr;
+  text-align: left;
 }}
 .nb-xzero-card {{
   margin-top: 24px;
@@ -373,6 +462,239 @@ def _values_at_stations(
             }
         )
     return rows
+
+
+def _cantilever_values_at_stations(loads: List[dict], L: float, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """ערכי N/Q/M בנקודות קריטיות לזיז (x=0..L)."""
+    ra_x = float(result.get("R_Ax", 0.0))
+    ra_y = float(result.get("R_Ay", 0.0))
+    m_a = float(result.get("M_A", 0.0))
+    rows: List[Dict[str, Any]] = []
+    for x, label in _cantilever_station_labels(loads, L):
+        x = float(x)
+        n_val = float(solver.normal_force(x, loads, ra_x, 0.0))
+        q_val = float(solver.cantilever_shear_force(x, loads, ra_y))
+        m_val = float(solver.cantilever_bending_moment(x, loads, ra_y, m_a))
+        rows.append({"x": x, "label": label, "N": n_val, "Q": q_val, "M": m_val})
+    return rows
+
+
+def _point_calc_grid_html(
+    rows: List[Dict[str, Any]],
+    *,
+    loads: List[dict],
+    support_mode: str,
+    L: float,
+    ra_pos: float = 0.0,
+    rb_pos: float = 0.0,
+    ra_x: float = 0.0,
+    ra_y: float = 0.0,
+    rb_y: float = 0.0,
+    cantilever_result: Optional[Dict[str, Any]] = None,
+) -> str:
+    """בלוק 3 עמודות: Nx/Qx/Mx בנקודות — עם פירוק "מה שעובר" בנקודה."""
+
+    def _fmt(v: float) -> str:
+        return str(solver.format_number(float(v)))
+
+    def _term_join(terms: List[str]) -> str:
+        out: List[str] = []
+        for t in terms:
+            t = str(t).strip()
+            if not t:
+                continue
+            if not out:
+                out.append(t)
+            else:
+                if t.startswith("-"):
+                    out.append("− " + t[1:].strip())
+                elif t.startswith("+"):
+                    out.append("+ " + t[1:].strip())
+                else:
+                    out.append("+ " + t)
+        return " ".join(out) if out else "0"
+
+    def _support_terms_at_x(x: float) -> Tuple[str, str, str]:
+        # N(x)
+        n_terms: List[str] = [f"Ax({_fmt(ra_x)})"]
+        # Q(x)
+        q_terms: List[str] = [f"Ay({_fmt(ra_y)})"]
+        # M(x)
+        m_terms: List[str] = []
+
+        if x >= rb_pos - 1e-9 and abs(rb_y) > 1e-9:
+            q_terms.append(f"+ By({_fmt(rb_y)})")
+
+        # תגובת כוחות למומנט בחתך (רק אם משמאל לחתך)
+        m_terms.append(f"Ay({_fmt(ra_y)})·{_fmt(x - ra_pos)}")
+        if x >= rb_pos - 1e-9 and abs(rb_y) > 1e-9:
+            m_terms.append(f"+ By({_fmt(rb_y)})·{_fmt(x - rb_pos)}")
+
+        for ld in loads:
+            t = ld.get("type")
+            if t == "point":
+                xi = float(ld.get("x", 0.0) or 0.0)
+                if x + 1e-9 < xi:
+                    continue
+                fx = float(ld.get("Fx", 0.0) or 0.0)
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                if abs(fx) > 1e-9:
+                    n_terms.append(f"+ Fx({_fmt(fx)})")
+                if abs(fy) > 1e-9:
+                    q_terms.append(f"+ Fy({_fmt(fy)})")
+                    m_terms.append(f"+ Fy({_fmt(fy)})·{_fmt(x - xi)}")
+            elif t == "inclined":
+                xi = float(ld.get("x", 0.0) or 0.0)
+                if x + 1e-9 < xi:
+                    continue
+                fx = float(ld.get("Fx", 0.0) or 0.0)
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                if abs(fx) > 1e-9:
+                    n_terms.append(f"+ Fx({_fmt(fx)})")
+                if abs(fy) > 1e-9:
+                    q_terms.append(f"+ Fy({_fmt(fy)})")
+                    m_terms.append(f"+ Fy({_fmt(fy)})·{_fmt(x - xi)}")
+            elif t == "distributed":
+                x1 = float(ld.get("x1", 0.0) or 0.0)
+                x2 = float(ld.get("x2", 0.0) or 0.0)
+                w = float(ld.get("w", 0.0) or 0.0)
+                if abs(w) < 1e-9 or x + 1e-9 <= x1:
+                    continue
+                seg = max(0.0, min(x, x2) - x1)
+                if seg <= 1e-9:
+                    continue
+                R = w * seg
+                xc = x1 + seg / 2.0
+                q_terms.append(f"+ R({_fmt(R)})")
+                m_terms.append(f"+ R({_fmt(R)})·{_fmt(x - xc)}")
+            elif t == "moment":
+                xi = float(ld.get("x", 0.0) or 0.0)
+                if x + 1e-9 < xi:
+                    continue
+                mm = float(ld.get("M", 0.0) or 0.0)
+                if abs(mm) > 1e-9:
+                    m_terms.append(f"+ M({_fmt(mm)})")
+
+        return _term_join(n_terms), _term_join(q_terms), _term_join(m_terms)
+
+    def _cantilever_terms_at_x(x: float) -> Tuple[str, str, str]:
+        ra_x2 = float(cantilever_result.get("R_Ax", 0.0)) if cantilever_result else 0.0
+        ra_y2 = float(cantilever_result.get("R_Ay", 0.0)) if cantilever_result else 0.0
+        m_a2 = float(cantilever_result.get("M_A", 0.0)) if cantilever_result else 0.0
+        n_terms: List[str] = [f"Ax({_fmt(ra_x2)})"]
+        q_terms: List[str] = [f"Ay({_fmt(ra_y2)})"]
+        m_terms: List[str] = [f"Ma({_fmt(m_a2)})", f"+ Ay({_fmt(ra_y2)})·{_fmt(x)}"]
+
+        for ld in loads:
+            t = ld.get("type")
+            if t == "point":
+                xi = float(ld.get("x", 0.0) or 0.0)
+                if x + 1e-9 < xi:
+                    continue
+                fx = float(ld.get("Fx", 0.0) or 0.0)
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                if abs(fx) > 1e-9:
+                    n_terms.append(f"+ Fx({_fmt(fx)})")
+                if abs(fy) > 1e-9:
+                    q_terms.append(f"+ Fy({_fmt(fy)})")
+                    m_terms.append(f"+ Fy({_fmt(fy)})·{_fmt(x - xi)}")
+            elif t == "inclined":
+                xi = float(ld.get("x", 0.0) or 0.0)
+                if x + 1e-9 < xi:
+                    continue
+                fx = float(ld.get("Fx", 0.0) or 0.0)
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                if abs(fx) > 1e-9:
+                    n_terms.append(f"+ Fx({_fmt(fx)})")
+                if abs(fy) > 1e-9:
+                    q_terms.append(f"+ Fy({_fmt(fy)})")
+                    m_terms.append(f"+ Fy({_fmt(fy)})·{_fmt(x - xi)}")
+            elif t == "distributed":
+                x1 = float(ld.get("x1", 0.0) or 0.0)
+                x2 = float(ld.get("x2", 0.0) or 0.0)
+                w = float(ld.get("w", 0.0) or 0.0)
+                if abs(w) < 1e-9 or x + 1e-9 <= x1:
+                    continue
+                seg = max(0.0, min(x, x2) - x1)
+                if seg <= 1e-9:
+                    continue
+                R = w * seg
+                xc = x1 + seg / 2.0
+                q_terms.append(f"+ R({_fmt(R)})")
+                m_terms.append(f"+ R({_fmt(R)})·{_fmt(x - xc)}")
+            elif t == "moment":
+                xi = float(ld.get("x", 0.0) or 0.0)
+                if x + 1e-9 < xi:
+                    continue
+                mm = float(ld.get("M", 0.0) or 0.0)
+                if abs(mm) > 1e-9:
+                    m_terms.append(f"+ M({_fmt(mm)})")
+
+        return _term_join(n_terms), _term_join(q_terms), _term_join(m_terms)
+
+    _re_labeled_num = re.compile(r"(?:Ax|Ay|By|Fx|Fy|Ma|R|M)\(([^)]*)\)")
+
+    def _expr_numbers_only(expr: str) -> str:
+        """נקודה ראשונה בכל עמודה — רק מספרים, בלי Ay/Ax וכו'."""
+        return _re_labeled_num.sub(r"\1", expr)
+
+    def _val_with_unit(val: float) -> str:
+        s = _fmt(val)
+        if abs(val) < 1e-9:
+            return s
+        return f"{s}t"
+
+    n_lines = ['<div class="nb-point-col"><h4>N(x)</h4>']
+    q_lines = ['<div class="nb-point-col"><h4>Q(x)</h4>']
+    m_lines = ['<div class="nb-point-col"><h4>M(x)</h4>']
+    prev_n: float | None = None
+    prev_q: float | None = None
+    prev_m: float | None = None
+    for r in rows:
+        x = float(r["x"])
+        lab = str(r.get("label", ""))
+        if support_mode == "cantilever":
+            n_expr, q_expr, m_expr = _cantilever_terms_at_x(x)
+        else:
+            n_expr, q_expr, m_expr = _support_terms_at_x(x)
+
+        n_val = float(r["N"])
+        q_val = float(r["Q"])
+        m_val = float(r["M"])
+        lab_esc = html_lib.escape(lab)
+
+        def _diagram_step(prev: float | None, cur: float) -> str:
+            """קפיצה בדיאגרמה: ערך לפני הנקודה ± גודל השינוי (כמו בגרף)."""
+            if prev is None:
+                return _fmt(cur)
+            d = cur - prev
+            if abs(d) < 1e-9:
+                return _fmt(cur)
+            if d > 0:
+                return f"{_fmt(prev)}+{_fmt(abs(d))}"
+            return f"{_fmt(prev)}-{_fmt(abs(d))}"
+
+        def _point_row(sym: str, expr: str, prev: float | None, val: float) -> str:
+            val_esc = html_lib.escape(_val_with_unit(val))
+            if prev is None:
+                expr_esc = html_lib.escape(_expr_numbers_only(expr))
+                return f"{sym}<sub>{lab_esc}</sub> = {expr_esc} = {val_esc}"
+            step_esc = html_lib.escape(_diagram_step(prev, val))
+            return f"{sym}<sub>{lab_esc}</sub> = {step_esc} = {val_esc}"
+
+        if prev_n is None or abs(n_val - prev_n) > 1e-9:
+            n_lines.append(_nb_step_html(_point_row("N", n_expr, prev_n, n_val), "nb-line"))
+            prev_n = n_val
+        if prev_q is None or abs(q_val - prev_q) > 1e-9:
+            q_lines.append(_nb_step_html(_point_row("Q", q_expr, prev_q, q_val), "nb-line"))
+            prev_q = q_val
+        if prev_m is None or abs(m_val - prev_m) > 1e-9:
+            m_lines.append(_nb_step_html(_point_row("M", m_expr, prev_m, m_val), "nb-line"))
+            prev_m = m_val
+    n_lines.append("</div>")
+    q_lines.append("</div>")
+    m_lines.append("</div>")
+    return '<div class="nb-point-grid">' + "".join(n_lines + q_lines + m_lines) + "</div>"
 
 
 def _load_fx_term(ld: dict) -> float:
@@ -608,16 +930,36 @@ def _draw_arrow_h(
     )
 
 
-# סמכים — משולש סגור, קווים דקים (×1.5 מהגודל הקודם)
-_SUPPORT_TRI_H = 0.45
-_SUPPORT_TRI_W = 0.36
+# סמכים — משולש סגור, פרופורציות קומפקטיות (לפני שדרוג ×1.5)
+_SUPPORT_TRI_H = 0.30
+_SUPPORT_TRI_W = 0.24
 _SUPPORT_LW = 0.9
 _SUPPORT_DETAIL_LW = 0.55
-_ROLLER_CIRCLE_R = 0.042 * 1.5
-_ROLLER_CIRCLE_LW = 3.0
-_PIN_HATCH_LW = 2.0
-_PIN_HATCH_LEN = 0.26
-_PIN_HATCH_LEAN = 0.24
+_ROLLER_CIRCLE_R = 0.042
+_ROLLER_CIRCLE_LW = 0.9
+_PIN_HATCH_LW = 0.9
+_PIN_HATCH_LEN = 0.13
+_PIN_HATCH_LEAN = 0.12
+# ריתום במחברת — 80% מגודל בסיס (קטן ב-20%)
+_CANTILEVER_NB_SUPPORT_SCALE = 0.8
+_CANTILEVER_WALL_HALF_H = 0.45 * _CANTILEVER_NB_SUPPORT_SCALE
+_CANTILEVER_HATCH_X = 0.18 * _CANTILEVER_NB_SUPPORT_SCALE
+_CANTILEVER_HATCH_DROP = 0.08 * _CANTILEVER_NB_SUPPORT_SCALE
+_CANTILEVER_WALL_LW = 1.8 * _CANTILEVER_NB_SUPPORT_SCALE
+_CANTILEVER_HATCH_LW = 0.9 * _CANTILEVER_NB_SUPPORT_SCALE
+# עומסים במחברת — דקים יותר, אורך/גודל ×1.35
+_NOTEBOOK_LOAD_LEN_MULT = 1.35
+_NOTEBOOK_LOAD_LW_POINT = 0.85
+_NOTEBOOK_LOAD_LW_AXIAL = 0.75
+_NOTEBOOK_LOAD_LW_INCL = 0.9
+_NOTEBOOK_LOAD_LW_UDL_LINE = 1.0
+_NOTEBOOK_LOAD_LW_UDL_ARR = 0.7
+_NOTEBOOK_LOAD_LW_UDL_MID = 0.6
+_NOTEBOOK_LOAD_LW_MOMENT_ARC = 1.0
+_NOTEBOOK_LOAD_LW_MOMENT_HEAD = 0.85
+_NOTEBOOK_MOMENT_RAD = 0.22
+_NOTEBOOK_MOMENT_ARC_MID_DEG = 110.0
+_NOTEBOOK_MOMENT_ARC_SPAN_DEG = 180.0 * _NOTEBOOK_LOAD_LEN_MULT
 _DIM_LINE_OFFSET = 0.30
 _SCHEMATIC_BOTTOM_PAD = 0.16
 _N_BELOW_MARGIN = 0.36
@@ -650,7 +992,7 @@ def _notebook_layout() -> Dict[str, float]:
     }
 
 
-_DIM_LW = 1.5
+_DIM_LW = 1.2
 _DIAG_LW = 1.5
 _BASELINE_COLOR = "#9a9a9a"
 _BASELINE_LW = 0.8
@@ -1046,7 +1388,7 @@ def _draw_roller_support(
     tri_h: float = _SUPPORT_TRI_H,
     tri_w: float = _SUPPORT_TRI_W,
 ) -> None:
-    """סמך ימין (גלגל): שני עיגולים ×1.5 מתחת לפינות המשולש."""
+    """סמך ימין (גלגל): שני עיגולים מתחת לפינות המשולש."""
     y_base = _draw_support_triangle(ax, x, tri_h, tri_w)
     r = _ROLLER_CIRCLE_R
     for xa in (x - tri_w, x + tri_w):
@@ -1062,19 +1404,40 @@ def _draw_roller_support(
         ax.add_patch(circ)
 
 
-def _draw_udl_line(ax: Any, x1: float, x2: float, q_label: str | None = None) -> None:
-    """מפולג: קו עליון, חצים אנכיים לנקודות הקצה, 3 חצים קטנים למטה מהקו."""
-    y_top = 0.28
-    y_tip = 0.02
-    arr_mid = 0.07
-    ax.plot([x1, x2], [y_top, y_top], color=_RED, linewidth=1.5, zorder=5)
-    _draw_arrow(ax, x1, y_top, y_tip, _RED, lw=1.0)
-    _draw_arrow(ax, x2, y_top, y_tip, _RED, lw=1.0)
+def _draw_udl_line(
+    ax: Any, x1: float, x2: float, stem: float, q_label: str | None = None
+) -> None:
+    """מפולג כמו לוח הקורה: קו עליון, חצים שראשם בקורה או בקו העומס."""
+    # הורדת גובה הקו העליון (ופועל יוצא: קיצור הקווים הצדדיים)
+    y_top = stem * (48.0 / 48.0)
+    arr_mid = stem * (12.0 / 48.0)
+    ax.plot([x1, x2], [y_top, y_top], color=_RED, linewidth=_NOTEBOOK_LOAD_LW_UDL_LINE, zorder=5)
+
+    def _udl_arrow(x: float, y0: float, y1: float, lw: float) -> None:
+        # חשוב: shrinkA/B=0 כדי שהחץ "יתחבר" לקו העליון ולקורה בלי רווחים.
+        ax.annotate(
+            "",
+            xy=(x, y1),
+            xytext=(x, y0),
+            arrowprops=dict(
+                arrowstyle="-|>",
+                color=_RED,
+                lw=lw,
+                mutation_scale=10,
+                shrinkA=0,
+                shrinkB=0,
+            ),
+            zorder=6,
+        )
+
+    _udl_arrow(x1, y_top, 0.0, _NOTEBOOK_LOAD_LW_UDL_ARR)
+    _udl_arrow(x2, y_top, 0.0, _NOTEBOOK_LOAD_LW_UDL_ARR)
     span = x2 - x1
     if span > 1e-9:
         for frac in (0.25, 0.5, 0.75):
             xc = x1 + frac * span
-            _draw_arrow(ax, xc, y_top, y_top - arr_mid, _RED, lw=0.85)
+            # חצים פנימיים צריכים לרדת מהקו העליון למטה (לא לעלות).
+            _udl_arrow(xc, y_top, y_top - arr_mid, _NOTEBOOK_LOAD_LW_UDL_MID)
     if q_label:
         ax.text(
             (x1 + x2) / 2,
@@ -1089,40 +1452,237 @@ def _draw_udl_line(ax: Any, x1: float, x2: float, q_label: str | None = None) ->
         )
 
 
+def _moment_arc_thetas(m: float) -> Tuple[float, float]:
+    """זוויות קשת מומנט — אורך ×1.35, רדיוס קבוע; חיובי/שלילי בחצאי מעגל נפרדים."""
+    half = _NOTEBOOK_MOMENT_ARC_SPAN_DEG / 2.0
+    # חיובי: אותה קשת כמו למטה, מוחזרת למעלה; שלילי בחצי המעגל הנגדי.
+    if m >= 0:
+        mid = _NOTEBOOK_MOMENT_ARC_MID_DEG
+    else:
+        mid = _NOTEBOOK_MOMENT_ARC_MID_DEG + 180.0
+    t1 = mid - half
+    t2 = mid + half
+    if t2 >= 360.0:
+        t2 -= 360.0
+    if t1 < 0.0:
+        t1 += 360.0
+    return t1, t2
+
+
 def _draw_moment_arc(
-    ax: Any, x: float, m: float, scale: float = 0.22, *, show_value: bool = True
+    ax: Any,
+    x: float,
+    m: float,
+    scale: float = _NOTEBOOK_MOMENT_RAD,
+    *,
+    show_value: bool = True,
 ) -> None:
     """קשת ממורכזת בנקודה על הקורה; ראש חץ בסוף הקשת."""
     rad = scale
-    t1, t2 = (20, 200) if m >= 0 else (200, 20)
+    t1, t2 = _moment_arc_thetas(m)
     ax.add_patch(
-        Arc((x, 0.0), rad * 2, rad * 2, angle=0, theta1=t1, theta2=t2, color=_RED, lw=1.4, zorder=5)
+        Arc(
+            (x, 0.0),
+            rad * 2,
+            rad * 2,
+            angle=0,
+            theta1=t1,
+            theta2=t2,
+            color=_RED,
+            lw=_NOTEBOOK_LOAD_LW_MOMENT_ARC,
+            zorder=5,
+        )
     )
-    t2_rad = np.deg2rad(t2)
-    xe = x + rad * np.cos(t2_rad)
-    ye = rad * np.sin(t2_rad)
-    tx = -rad * np.sin(t2_rad)
-    ty = rad * np.cos(t2_rad)
+    # במומנט חיובי: מעבירים את ראש החץ לקצה השני של הקשת.
+    t_head = t1 if m >= 0 else t2
+    t_head_rad = np.deg2rad(t_head)
+    xe = x + rad * np.cos(t_head_rad)
+    ye = rad * np.sin(t_head_rad)
+    tx = -rad * np.sin(t_head_rad)
+    ty = rad * np.cos(t_head_rad)
+    if m >= 0:
+        tx = -tx
+        ty = -ty
     tlen = float(np.hypot(tx, ty)) or 1.0
     ah = 0.055
     ax.annotate(
         "",
         xy=(xe, ye),
         xytext=(xe - tx / tlen * ah * 2.2, ye - ty / tlen * ah * 2.2),
-        arrowprops=dict(arrowstyle="-|>", color=_RED, lw=1.2, mutation_scale=9),
+        arrowprops=dict(
+            arrowstyle="-|>", color=_RED, lw=_NOTEBOOK_LOAD_LW_MOMENT_HEAD, mutation_scale=9
+        ),
         zorder=6,
     )
     if show_value:
+        label_y = rad + 0.14 if m >= 0 else -(rad + 0.14)
         ax.text(
             x + 0.06 * (1 if m >= 0 else -1),
-            rad + 0.14,
+            label_y,
             f"{solver.format_number(abs(m))}",
             fontsize=_FS_BODY,
             color=_RED,
             fontweight="normal",
             ha="left" if m >= 0 else "right",
+            va="bottom" if m >= 0 else "top",
             zorder=6,
         )
+
+
+def _draw_loads_like_canvas(ax: Any, loads: List[dict], load_scale: float, *, show_values: bool = False) -> None:
+    """עומסים כמו בלוח הקורה הראשי — כל חץ מצביע אל נקודת ההצבה על הקורה (y=0)."""
+    # חשוב: לא לתת לגובה החצים "להתפוצץ" כשיש שילוב עומסים גדול (למשל נקודתי+מפוזר),
+    # אחרת החצים נמתחים למעלה מחוץ לאזור השרטוט במחברת.
+    stem = min(load_scale * _NOTEBOOK_LOAD_LEN_MULT, 0.62)
+    for ld in loads:
+        if ld["type"] == "point":
+            x = float(ld["x"])
+            fy = float(ld["Fy"])
+            fx = float(ld.get("Fx", 0.0))
+            fy_mag = abs(fy)
+            if fy_mag > 1e-6 and abs(fx) < 1e-6:
+                if fy < 0:
+                    # Fy<0 = עומס כלפי מטה (מהקנבס) → חץ מלמעלה אל הקורה.
+                    _draw_arrow(ax, x, stem, 0.0, _RED, lw=_NOTEBOOK_LOAD_LW_POINT)
+                    if show_values:
+                        ax.text(
+                            x + 0.04,
+                            stem + 0.06,
+                            f"{solver.format_number(fy_mag)}",
+                            fontsize=_FS_BODY,
+                            color=_RED,
+                        )
+                else:
+                    # Fy>0 = עומס כלפי מעלה → חץ מלמטה אל הקורה.
+                    _draw_arrow(ax, x, -stem, 0.0, _RED, lw=_NOTEBOOK_LOAD_LW_POINT)
+                    if show_values:
+                        ax.text(
+                            x + 0.04,
+                            -stem - 0.06,
+                            f"{solver.format_number(fy_mag)}",
+                            fontsize=_FS_BODY,
+                            color=_RED,
+                        )
+            elif fy_mag < 1e-6 and abs(fx) >= 1e-6:
+                if fx > 0:
+                    _draw_arrow_h(ax, x - stem, x, 0.0, _RED, lw=_NOTEBOOK_LOAD_LW_AXIAL)
+                else:
+                    _draw_arrow_h(ax, x + stem, x, 0.0, _RED, lw=_NOTEBOOK_LOAD_LW_AXIAL)
+                if show_values:
+                    ax.text(
+                        x + (stem / 2 if fx < 0 else -stem / 2),
+                        0.08,
+                        f"{solver.format_number(abs(fx))}",
+                        fontsize=_FS_BODY,
+                        color=_RED,
+                        ha="center",
+                    )
+            elif fy_mag > 1e-6:
+                mag = float(np.hypot(fx, fy)) or 1.0
+                tail_x = x - fx / mag * stem
+                tail_y = -fy / mag * stem
+                ax.annotate(
+                    "",
+                    xy=(x, 0.0),
+                    xytext=(tail_x, tail_y),
+                    arrowprops=dict(
+                        arrowstyle="-|>", color=_RED, lw=_NOTEBOOK_LOAD_LW_INCL, mutation_scale=10
+                    ),
+                    zorder=5,
+                )
+                if show_values:
+                    ax.text(
+                        (x + tail_x) / 2,
+                        tail_y + (0.08 if fy < 0 else -0.08),
+                        f"{solver.format_number(mag)}",
+                        fontsize=_FS_BODY,
+                        color=_RED,
+                        ha="center",
+                    )
+            else:
+                _draw_arrow(ax, x, stem, 0.0, _RED, lw=_NOTEBOOK_LOAD_LW_POINT)
+        elif ld["type"] == "distributed":
+            q_lbl = f"{solver.format_number(abs(float(ld['w'])))}" if show_values else None
+            _draw_udl_line(ax, float(ld["x1"]), float(ld["x2"]), stem, q_lbl)
+        elif ld["type"] == "moment":
+            _draw_moment_arc(ax, float(ld["x"]), float(ld["M"]), show_value=show_values)
+        elif ld["type"] == "inclined":
+            x = float(ld["x"])
+            fx = float(ld["Fx"])
+            fy = float(ld["Fy"])
+            mag = float(np.hypot(fx, fy))
+            if mag > 1e-9:
+                tail_x = x - fx / mag * stem
+                tail_y = -fy / mag * stem
+                ax.annotate(
+                    "",
+                    xy=(x, 0.0),
+                    xytext=(tail_x, tail_y),
+                    arrowprops=dict(
+                        arrowstyle="-|>", color=_RED, lw=_NOTEBOOK_LOAD_LW_INCL, mutation_scale=10
+                    ),
+                    zorder=5,
+                )
+                if show_values:
+                    ax.text(
+                        (x + tail_x) / 2,
+                        tail_y - 0.08,
+                        f"{solver.format_number(mag)}",
+                        fontsize=_FS_BODY,
+                        color=_RED,
+                        ha="center",
+                    )
+
+
+def _draw_notebook_dimension_lines(
+    ax: Any,
+    stations: List[Tuple[float, str]],
+    layout: Dict[str, float],
+    *,
+    support_pair: Optional[Tuple[float, float]] = None,
+    label_offset_squares: float = 0.0,
+) -> float:
+    y_dim = layout["y_dim"]
+    y_lab = layout["y_lab"] - (0.5 + label_offset_squares) * _NOTEBOOK_GRID_Y
+    xs = sorted(set(float(x) for x, _ in stations))
+    for x in xs:
+        if abs(x) > 1e-6 and abs(x - xs[-1]) > 1e-6:
+            _draw_beam_station_x(ax, x)
+    ax.plot([xs[0], xs[-1]], [y_dim, y_dim], color=_INK, lw=_DIM_LW, zorder=2)
+    for x in xs:
+        ax.plot([x, x], [y_dim - 0.045, y_dim + 0.045], color=_INK, lw=_DIM_LW)
+    for x0, x1 in zip(xs[:-1], xs[1:]):
+        seg = x1 - x0
+        if seg > 0.02:
+            ax.text(
+                (x0 + x1) / 2,
+                y_dim + 0.09,
+                solver.format_number(seg),
+                ha="center",
+                va="bottom",
+                fontsize=_FS_SMALL,
+                color=_INK,
+            )
+    for x, lab in stations:
+        ax.text(x, y_lab, lab, ha="center", fontsize=_FS_LABEL, fontweight="normal", color=_INK)
+    bottom = y_lab - 0.08
+    if support_pair is not None:
+        a, b = sorted((float(support_pair[0]), float(support_pair[1])))
+        y_sup = y_dim - 4.0 * _NOTEBOOK_GRID_Y
+        ax.plot([a, b], [y_sup, y_sup], color=_INK, lw=_DIM_LW, zorder=2)
+        ax.plot([a, a], [y_sup, y_sup + 0.14], color=_INK, lw=_DIM_LW)
+        ax.plot([b, b], [y_sup, y_sup + 0.14], color=_INK, lw=_DIM_LW)
+        ax.text(
+            (a + b) / 2,
+            y_sup - 0.09,
+            solver.format_number(b - a),
+            ha="center",
+            va="top",
+            fontsize=_FS_SMALL,
+            color=_INK,
+        )
+        bottom = min(bottom, y_sup - 0.16)
+    return bottom
 
 
 def _draw_beam_schematic(
@@ -1140,7 +1700,7 @@ def _draw_beam_schematic(
 ) -> None:
     """שרטוט קורה + עומסים. show_values=False: רק אותיות נקודות על קו מידות (A,B,C…)."""
     Lf = float(L)
-    ax.plot([0, Lf], [0, 0], color=_INK, linewidth=2.2, zorder=2, solid_capstyle="round")
+    ax.plot([0, Lf], [0, 0], color=_INK, linewidth=1.7, zorder=2, solid_capstyle="round")
 
     if abs(ra_pos - rb_pos) < 1e-9:
         _draw_pin_support(ax, ra_pos)
@@ -1153,91 +1713,7 @@ def _draw_beam_schematic(
             _draw_roller_support(ax, ra_pos)
 
     load_scale = max(0.28, 0.05 * max(abs(ra_y), abs(rb_y), 8.0))
-
-    for ld in loads:
-        if ld["type"] == "point":
-            x = float(ld["x"])
-            fy = float(ld["Fy"])
-            fx = float(ld.get("Fx", 0.0))
-            if abs(fy) > 1e-9:
-                mag = load_scale
-                if fy < 0:
-                    _draw_arrow(ax, x, 0.42, 0.42 - mag, _RED, lw=1.2)
-                    if show_values:
-                        ax.text(
-                            x + 0.04,
-                            0.44,
-                            f"{solver.format_number(abs(fy))}",
-                            fontsize=_FS_BODY,
-                            color=_RED,
-                            fontweight="normal",
-                        )
-                else:
-                    _draw_arrow(ax, x, -0.36, -0.36 + mag, _RED, lw=1.2)
-                    if show_values:
-                        ax.text(
-                            x + 0.04,
-                            -0.2,
-                            f"{solver.format_number(abs(fy))}",
-                            fontsize=_FS_BODY,
-                            color=_RED,
-                            fontweight="normal",
-                        )
-            if abs(fx) > 1e-9:
-                magx = load_scale * 0.85
-                y0 = 0.05
-                if fx > 0:
-                    _draw_arrow_h(ax, x - magx, x, y0, _RED, lw=1.1)
-                    if show_values:
-                        ax.text(
-                            x - magx - 0.12,
-                            y0 + 0.06,
-                            f"{solver.format_number(abs(fx))}",
-                            fontsize=_FS_BODY,
-                            color=_RED,
-                        )
-                else:
-                    _draw_arrow_h(ax, x + magx, x, y0, _RED, lw=1.1)
-                    if show_values:
-                        ax.text(
-                            x + magx + 0.03,
-                            y0 + 0.06,
-                            f"{solver.format_number(abs(fx))}",
-                            fontsize=_FS_BODY,
-                            color=_RED,
-                        )
-        elif ld["type"] == "distributed":
-            x1, x2 = float(ld["x1"]), float(ld["x2"])
-            q_lbl = (
-                f"{solver.format_number(abs(float(ld['w'])))}" if show_values else None
-            )
-            _draw_udl_line(ax, x1, x2, q_lbl)
-        elif ld["type"] == "moment":
-            _draw_moment_arc(ax, float(ld["x"]), float(ld["M"]), show_value=show_values)
-        elif ld["type"] == "inclined":
-            x = float(ld["x"])
-            fx, fy = float(ld["Fx"]), float(ld["Fy"])
-            mag = (fx * fx + fy * fy) ** 0.5
-            if mag > 1e-9:
-                ux, uy = fx / mag, fy / mag
-                Larr = load_scale * 1.05
-                ax.annotate(
-                    "",
-                    xy=(x + ux * Larr, uy * Larr),
-                    xytext=(x, 0),
-                    arrowprops=dict(arrowstyle="-|>", color=_RED, lw=1.3),
-                    zorder=5,
-                )
-                if show_values:
-                    ax.text(
-                        x + ux * Larr * 0.55,
-                        uy * Larr * 0.55 + 0.08,
-                        f"{solver.format_number(mag)}",
-                        fontsize=_FS_BODY,
-                        color=_RED,
-                        fontweight="normal",
-                        ha="center",
-                    )
+    _draw_loads_like_canvas(ax, loads, load_scale, show_values=show_values)
 
     if show_values:
         if abs(ra_y) > 1e-9:
@@ -1290,37 +1766,55 @@ def _draw_beam_schematic(
                     color=_INK,
                 )
 
-    # קו מידות + אותיות נקודות (A, C, D, …)
     stations = station_labels(loads, L, ra_pos, rb_pos)
     layout = _notebook_layout()
-    y_dim = layout["y_dim"]
-    y_lab = layout["y_lab"]
-    for i in range(len(stations) - 1):
-        x0, _ = stations[i]
-        x1, _ = stations[i + 1]
-        xm = (x0 + x1) / 2
-        ax.plot([x0, x1], [y_dim, y_dim], color=_INK, lw=_DIM_LW, zorder=2)
-        ax.plot([x0, x0], [y_dim - 0.03, y_dim + 0.03], color=_INK, lw=_DIM_LW)
-        ax.plot([x1, x1], [y_dim - 0.03, y_dim + 0.03], color=_INK, lw=_DIM_LW)
-        if show_values:
-            seg = x1 - x0
-            if seg > 0.02:
-                ax.text(
-                    xm,
-                    y_dim - 0.1,
-                    solver.format_number(seg),
-                    ha="center",
-                    fontsize=_FS_SMALL,
-                    color=_INK,
-                )
-    for x, lab in stations:
-        _draw_beam_station_x(ax, x)
-        ax.text(x, y_lab, lab, ha="center", fontsize=_FS_LABEL, fontweight="normal", color=_INK)
+    dim_bottom = _draw_notebook_dimension_lines(
+        ax, stations, layout, support_pair=(ra_pos, rb_pos)
+    )
 
     pad_x = max(0.15, 0.04 * Lf)
     ax.set_xlim(-pad_x, Lf + pad_x)
     if set_limits:
-        ax.set_ylim(layout["y_bottom"], layout["y_top"])
+        ax.set_ylim(min(layout["y_bottom"], dim_bottom), layout["y_top"])
+    ax.axis("off")
+
+
+def _draw_cantilever_wall_support(ax: Any) -> None:
+    h = _CANTILEVER_WALL_HALF_H
+    span = 2.0 * h
+    ax.plot([0, 0], [-h, h], color=_INK, linewidth=_CANTILEVER_WALL_LW, zorder=3)
+    for i in range(6):
+        yy = -h + span * (i / 5)
+        ax.plot(
+            [-_CANTILEVER_HATCH_X, 0],
+            [yy - _CANTILEVER_HATCH_DROP, yy],
+            color=_INK,
+            linewidth=_CANTILEVER_HATCH_LW,
+            zorder=3,
+        )
+
+
+def _draw_cantilever_beam_schematic(
+    ax: Any,
+    L: float,
+    loads: List[dict],
+    *,
+    ra_y: float = 0.0,
+    set_limits: bool = True,
+) -> None:
+    """קורת זיז + עומסים — אותו ylim וקנה מידה כמו סמכים (עומסים דקים)."""
+    Lf = float(L)
+    ax.plot([0, Lf], [0, 0], color=_INK, linewidth=1.7, zorder=2, solid_capstyle="round")
+    _draw_cantilever_wall_support(ax)
+    load_scale = max(0.28, 0.05 * max(abs(float(ra_y)), 8.0))
+    _draw_loads_like_canvas(ax, loads, load_scale, show_values=False)
+    stations = _cantilever_station_labels(loads, L)
+    layout = _notebook_layout()
+    dim_bottom = _draw_notebook_dimension_lines(ax, stations, layout, label_offset_squares=0.5)
+    pad_x = max(0.3 * _CANTILEVER_NB_SUPPORT_SCALE, 0.04 * Lf)
+    ax.set_xlim(-pad_x, Lf + max(0.2, 0.03 * Lf))
+    if set_limits:
+        ax.set_ylim(min(layout["y_bottom"], dim_bottom), layout["y_top"])
     ax.axis("off")
 
 
@@ -1500,6 +1994,110 @@ def _diagram_titles(fig: Any, ax: Any, hebrew: str, symbol: str, color: str) -> 
         fontweight="500",
         color=color,
     )
+
+
+def _diagram_side_labels(fig: Any, ax: Any, left_txt: str, right_txt: str) -> None:
+    """תוויות מינימליות בלבד: שם משמאל ויחידה מימין."""
+    bb = ax.get_position()
+    fs = float(_FS_SMALL) * 1.8
+    fig.text(
+        bb.x0 - 0.012,
+        bb.y0 + bb.height / 2,
+        left_txt,
+        ha="right",
+        va="center",
+        fontsize=fs,
+        fontweight="600",
+        color=_INK,
+    )
+    fig.text(
+        bb.x1 + 0.020,
+        bb.y0 + bb.height / 2,
+        right_txt,
+        ha="left",
+        va="center",
+        fontsize=fs,
+        fontweight="600",
+        color=_INK,
+    )
+
+
+def _plot_n_on_beam_clean(
+    ax: Any,
+    xs: np.ndarray,
+    normals: np.ndarray,
+    Lf: float,
+    x_pad: float,
+    crit: List[Tuple[float, str]],
+    *,
+    transparent: bool = True,
+) -> None:
+    xs = np.asarray(xs, dtype=float)
+    normals = np.asarray(normals, dtype=float)
+    if len(xs) and xs[0] > 1e-9:
+        xs = np.concatenate(([0.0], xs))
+        normals = np.concatenate(([float(normals[0])], normals))
+
+    _configure_beam_diagram_ax(ax, Lf, x_pad, normals, transparent=transparent, paper=False)
+    _plot_zero_baseline_cartesian(ax, Lf)
+    # להתחיל מהקורה (y=0) גם אם יש קפיצה בתחילת הגרף
+    if len(xs):
+        ax.plot([0.0, 0.0], [0.0, float(normals[0])], color=_GREEN, linewidth=_DIAG_LW, zorder=3)
+    ax.step(xs, normals, where="post", color=_GREEN, linewidth=_DIAG_LW, zorder=3)
+    ax.invert_yaxis()
+    ymin, ymax = ax.get_ylim()
+    _draw_beam_reference(ax, Lf, crit, ymin, ymax)
+
+
+def _plot_q_on_beam_clean(
+    ax: Any,
+    xs: np.ndarray,
+    shears: np.ndarray,
+    Lf: float,
+    x_pad: float,
+    crit: List[Tuple[float, str]],
+    *,
+    transparent: bool = True,
+) -> None:
+    xs = np.asarray(xs, dtype=float)
+    shears = np.asarray(shears, dtype=float)
+    if len(xs) and xs[0] > 1e-9:
+        xs = np.concatenate(([0.0], xs))
+        shears = np.concatenate(([float(shears[0])], shears))
+
+    _configure_beam_diagram_ax(ax, Lf, x_pad, shears, transparent=transparent, paper=False)
+    _plot_zero_baseline_cartesian(ax, Lf)
+    if len(xs):
+        ax.plot([0.0, 0.0], [0.0, float(shears[0])], color=_BLUE, linewidth=_DIAG_LW, zorder=3)
+    ax.step(xs, shears, where="post", color=_BLUE, linewidth=_DIAG_LW, zorder=3)
+    ymin, ymax = ax.get_ylim()
+    _draw_beam_reference(ax, Lf, crit, ymin, ymax)
+
+
+def _plot_m_on_beam_clean(
+    ax: Any,
+    xs: np.ndarray,
+    moments: np.ndarray,
+    Lf: float,
+    x_pad: float,
+    crit: List[Tuple[float, str]],
+    *,
+    transparent: bool = True,
+) -> None:
+    xs = np.asarray(xs, dtype=float)
+    moments = np.asarray(moments, dtype=float)
+    if len(xs) and xs[0] > 1e-9:
+        xs = np.concatenate(([0.0], xs))
+        moments = np.concatenate(([float(moments[0])], moments))
+
+    _configure_beam_diagram_ax(ax, Lf, x_pad, moments, transparent=transparent, paper=False)
+    _plot_zero_baseline_cartesian(ax, Lf)
+    if len(xs):
+        ax.plot([0.0, 0.0], [0.0, float(moments[0])], color=_RED, linewidth=_DIAG_LW, zorder=3)
+    ax.plot(xs, moments, color=_RED, linewidth=_DIAG_LW, zorder=3, solid_capstyle="round")
+    ax.invert_yaxis()
+    ymin, ymax = ax.get_ylim()
+    _draw_beam_reference(ax, Lf, crit, ymin, ymax)
 
 
 def _annotate_step_blocks(
@@ -1698,6 +2296,403 @@ def build_beam_figure(
     return fig
 
 
+def build_beam_schematic_figure(
+    L: float,
+    loads: List[dict],
+    ra_pos: float,
+    rb_pos: float,
+    ra_x: float,
+    ra_y: float,
+    rb_x: float,
+    rb_y: float,
+) -> Any:
+    """קורה + מידות בלבד (ללא דיאגרמות N/Q/M) — לתצוגה זמנית במחברת."""
+    _notebook_mpl_rc()
+    fig, ax = plt.subplots(1, 1, figsize=(7.8, 2.15), facecolor="none")
+    _prep_figure_transparent(fig)
+    _prep_axis_on_paper(ax, grid=False)
+    _draw_beam_schematic(ax, L, loads, ra_pos, rb_pos, ra_x, ra_y, rb_y)
+    # חשוב: לא לדרוס set_ylim / set_xlim של _draw_beam_schematic,
+    # אחרת קו המידה בין הסמכים והמספר נחתכים.
+    fig.subplots_adjust(left=0.09, right=0.99, top=0.98, bottom=0.06)
+    return fig
+
+
+def _notebook_graphics_assets(
+    *,
+    mode: str,
+    loads: List[dict],
+    L: float,
+    ra_pos: float | None = None,
+    rb_pos: float | None = None,
+    ra_x: float | None = None,
+    ra_y: float | None = None,
+    rb_x: float | None = None,
+    rb_y: float | None = None,
+    result: Dict[str, Any] | None = None,
+) -> Tuple[bytes, bytes]:
+    """
+    מחזיר (png_display, png_download) עבור המחברת:
+    - png_display: מה שרואים במסך כרגע (ללא דיאגרמות).
+    - png_download: מה שמור להורדה (כולל דיאגרמות).
+
+    כל הלוגיקה הגרפית מרוכזת כאן עבור סמכים + ריתום.
+    """
+    if mode == "supports":
+        if ra_pos is None or rb_pos is None or ra_x is None or ra_y is None or rb_x is None or rb_y is None:
+            raise ValueError("supports mode requires ra/rb positions and reactions")
+        fig_download = build_beam_figure(L, loads, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y)
+        png_download = _fig_to_png_bytes(fig_download, on_paper=True, pad_inches=0.08)
+        plt.close(fig_download)
+
+        fig_display = build_beam_schematic_figure(L, loads, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y)
+        png_display = _fig_to_png_bytes(fig_display, on_paper=True, pad_inches=0.08)
+        plt.close(fig_display)
+        return png_display, png_download
+
+    if mode == "cantilever":
+        if result is None:
+            raise ValueError("cantilever mode requires result dict")
+        _notebook_mpl_rc()
+        xs = np.asarray(result["xs"], dtype=float)
+        normals = np.asarray(result["normal"], dtype=float)
+        shears = np.asarray(result["shear"], dtype=float)
+        moments = np.asarray(result["moment"], dtype=float)
+
+        # download: full page (beam + diagrams)
+        fig_download = plt.figure(figsize=(7.8, 7.2), facecolor="none")
+        _prep_figure_transparent(fig_download)
+        gs = fig_download.add_gridspec(
+            4,
+            1,
+            height_ratios=[1.05, 1, 1, 1],
+            hspace=0.16,
+            left=0.12,
+            right=0.98,
+            top=0.98,
+            bottom=0.06,
+        )
+        ax_b = fig_download.add_subplot(gs[0])
+        _draw_cantilever_beam_schematic(
+            ax_b, L, loads, ra_y=float(result.get("R_Ay", 0.0))
+        )
+        crit = _cantilever_station_labels(loads, L)
+        Lf = float(L)
+        x_pad = _beam_x_pad(Lf)
+        ax_n = fig_download.add_subplot(gs[1], sharex=ax_b)
+        _plot_n_on_beam(ax_n, xs, normals, Lf, x_pad, crit, transparent=True)
+        _diagram_titles(fig_download, ax_n, "כוחות ציריים", f"N(x) [{_U_FORCE}]", _GREEN)
+        ax_q = fig_download.add_subplot(gs[2], sharex=ax_b)
+        _plot_q_on_beam(ax_q, xs, shears, Lf, x_pad, crit, transparent=True)
+        _diagram_titles(fig_download, ax_q, "גזירה", f"Q(x) [{_U_FORCE}]", _BLUE)
+        ax_m = fig_download.add_subplot(gs[3], sharex=ax_b)
+        _plot_m_on_beam(ax_m, xs, moments, Lf, x_pad, crit, transparent=True)
+        _diagram_titles(fig_download, ax_m, "מומנטים", f"M(x) [{_U_MOMENT}]", _RED)
+
+        png_download = _fig_to_png_bytes(fig_download, on_paper=True, pad_inches=0.08)
+        plt.close(fig_download)
+
+        # display: beam only (axis top) without diagrams
+        fig_display = plt.figure(figsize=(7.8, 2.15), facecolor="none")
+        _prep_figure_transparent(fig_display)
+        ax_d = fig_display.add_subplot(1, 1, 1)
+        _prep_axis_on_paper(ax_d, grid=False)
+        _draw_cantilever_beam_schematic(
+            ax_d, L, loads, ra_y=float(result.get("R_Ay", 0.0))
+        )
+        fig_display.subplots_adjust(left=0.09, right=0.99, top=0.98, bottom=0.06)
+
+        png_display = _fig_to_png_bytes(fig_display, on_paper=True, pad_inches=0.08)
+        plt.close(fig_display)
+        return png_display, png_download
+
+    raise ValueError(f"unknown notebook graphics mode: {mode}")
+
+
+def _notebook_graphics_html(png_display: bytes, extra_html: str = "") -> str:
+    b64 = base64.b64encode(png_display).decode("ascii")
+    return f"""
+<div class="nb-row">
+  <div class="nb-col-left" style="flex-basis:100%;width:100%;">
+    <div class="nb-beam-zone">
+      <img src="data:image/png;base64,{b64}" alt="beam notebook graphic"/>
+    </div>
+    {extra_html}
+  </div>
+</div>
+"""
+
+
+def _notebook_calc_stub_under_beam(
+    loads: List[dict],
+    ax_value: float,
+    *,
+    L: float = 10.0,
+    support_mode: str = "supports",
+    ra_pos: float = 0.0,
+    rb_pos: float = 0.0,
+    ra_y: float = 0.0,
+    rb_y: float = 0.0,
+    cantilever_result: Optional[Dict[str, Any]] = None,
+) -> str:
+    """בלוק חישובים מינימלי שמופיע מתחת לקורה (סגנון 'מחברת באייפד')."""
+    # משוואת ציר X: מתחילים ב-Ax ואז עוברים עומס-עומס משמאל לימין.
+    axial_terms: List[Tuple[float, float]] = []  # (x, Fx)
+    for ld in loads:
+        if ld.get("type") == "point":
+            fx = float(ld.get("Fx", 0.0) or 0.0)
+            if abs(fx) > 1e-9:
+                axial_terms.append((float(ld.get("x", 0.0) or 0.0), fx))
+        elif ld.get("type") == "inclined":
+            fx = float(ld.get("Fx", 0.0) or 0.0)
+            if abs(fx) > 1e-9:
+                axial_terms.append((float(ld.get("x", 0.0) or 0.0), fx))
+    axial_terms.sort(key=lambda p: p[0])
+    has_fx = len(axial_terms) > 0
+    # מרחק בין שורות חישוב: מעלים את השורה השנייה משבצת אחת (11px),
+    # וכל שורה נוספת תשתמש באותו מרווח (כלומר אותו offset שלילִי).
+    _LINE_UP_ONE_SQUARE = "margin-top:-11px;"
+    if not has_fx:
+        ax_eq_html = html_lib.escape(f"Ax = 0 {_U_FORCE}")
+        ax_ans_html = (
+            f'<span class="nb-box nb-box-answer">{html_lib.escape(f"Ax = 0 {_U_FORCE}")}</span>'
+        )
+        ax_line = f"{ax_eq_html}&nbsp;&nbsp;&nbsp;, {ax_ans_html}"
+    else:
+        parts: List[str] = ["Ax"]
+        for _, fx in axial_terms:
+            if fx >= 0:
+                parts.append(f"+ {solver.format_number(fx)}")
+            else:
+                parts.append(f"− {solver.format_number(abs(fx))}")
+        ax_eq_html = html_lib.escape(" ".join(parts) + " = 0")
+        ax_ans_html = (
+            f'<span class="nb-box nb-box-answer">'
+            f'{html_lib.escape(f"Ax = {solver.format_number(ax_value)} {_U_FORCE}")}'
+            f"</span>"
+        )
+        ax_line = f"{ax_eq_html}&nbsp;&nbsp;&nbsp;, {ax_ans_html}"
+
+    def _calc_row_with_answer(eq_html: str, ans_name: str, ans_value: float, ans_unit: str, line_style: str) -> str:
+        inner = f"{eq_html}{_nb_eq_answer_tail(ans_name, ans_value, ans_unit)}"
+        return _nb_calc_eq_row(inner, line_style)
+
+    def _fy_term_strings_vertical() -> List[str]:
+        """עומסים אנכיים משמאל לימין לפי x (למשוואת ΣFy)."""
+        items: List[Tuple[float, float]] = []
+        for ld in loads:
+            t = ld.get("type")
+            if t == "point":
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                if abs(fy) > 1e-9:
+                    items.append((float(ld.get("x", 0.0) or 0.0), fy))
+            elif t == "inclined":
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                if abs(fy) > 1e-9:
+                    items.append((float(ld.get("x", 0.0) or 0.0), fy))
+            elif t == "distributed":
+                w = float(ld.get("w", 0.0) or 0.0)
+                x1 = float(ld.get("x1", 0.0) or 0.0)
+                x2 = float(ld.get("x2", 0.0) or 0.0)
+                span = x2 - x1
+                if abs(w) < 1e-9 or span <= 1e-9:
+                    continue
+                items.append(((x1 + x2) / 2.0, w * span))
+        items.sort(key=lambda p: p[0])
+        out: List[str] = []
+        for _, fy in items:
+            sign = "+" if fy >= 0 else "−"
+            out.append(f"{sign} {solver.format_number(abs(fy))}")
+        if out and out[0].startswith("+"):
+            out[0] = out[0][1:]
+        return out
+
+    # ΣM_A = 0 (שורה + שורת פירוק מתחת)
+    def _m_term_strings_about(x_ref: float) -> List[str]:
+        """מחזיר מחרוזות של (כוח·מרחק) לכל עומס סביב נקודה, בסימן מתאים."""
+        out: List[str] = []
+        for ld in loads:
+            t = ld.get("type")
+            if t == "point":
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                dx = float(ld.get("x", 0.0) or 0.0) - float(x_ref)
+                if abs(fy) < 1e-9 or abs(dx) < 1e-9:
+                    continue
+                m = -fy * dx
+                sign = "+" if m >= 0 else "−"
+                out.append(f"{sign}({solver.format_number(abs(fy))}·{solver.format_number(abs(dx))})")
+            elif t == "inclined":
+                fy = float(ld.get("Fy", 0.0) or 0.0)
+                dx = float(ld.get("x", 0.0) or 0.0) - float(x_ref)
+                if abs(fy) < 1e-9 or abs(dx) < 1e-9:
+                    continue
+                m = -fy * dx
+                sign = "+" if m >= 0 else "−"
+                out.append(f"{sign}({solver.format_number(abs(fy))}·{solver.format_number(abs(dx))})")
+            elif t == "distributed":
+                w = float(ld.get("w", 0.0) or 0.0)
+                x1 = float(ld.get("x1", 0.0) or 0.0)
+                x2 = float(ld.get("x2", 0.0) or 0.0)
+                span = x2 - x1
+                if abs(w) < 1e-9 or span <= 1e-9:
+                    continue
+                resultant = w * span
+                centroid = (x1 + x2) / 2.0
+                dx = centroid - float(x_ref)
+                m = -resultant * dx
+                sign = "+" if m >= 0 else "−"
+                # במקום "טון·מטר" או (w·L)·d — מציגים (R·d), כאשר R הכח השקול.
+                out.append(
+                    f"{sign}({solver.format_number(abs(resultant))}·{solver.format_number(abs(dx))})"
+                )
+            elif t == "moment":
+                mm = float(ld.get("M", 0.0) or 0.0)
+                if abs(mm) < 1e-9:
+                    continue
+                sign = "+" if mm >= 0 else "−"
+                out.append(f"{sign}({solver.format_number(abs(mm))})")
+        # נרצה להתחיל בלי + בתחילת השורה
+        if out and out[0].startswith("+"):
+            out[0] = out[0][1:]
+        return out
+
+    if support_mode == "supports" and abs(rb_pos - ra_pos) > 1e-9:
+        arm_b = float(rb_pos - ra_pos)
+        arm_a = float(ra_pos - rb_pos)
+        m_terms_a = _m_term_strings_about(float(ra_pos))
+        ma_line = f"{_sym_sigma()}Ma = 0"
+        ma_parts = list(m_terms_a) if m_terms_a else ["0"]
+        ma_parts.append(f"+ By·{solver.format_number(arm_b)}")
+        ma_calc = _join_calc_terms(ma_parts)
+        ma_res_name = "By"
+        ma_res_value = float(rb_y)
+        ma_res_unit = _U_FORCE
+        mb_line = f"{_sym_sigma()}Mb = 0"
+        m_terms_b = _m_term_strings_about(float(rb_pos))
+        mb_parts = list(m_terms_b) if m_terms_b else ["0"]
+        mb_parts.append(f"+ Ay·{solver.format_number(abs(arm_a))}")
+        mb_calc = _join_calc_terms(mb_parts)
+        ay_res_name = "Ay"
+        ay_res_value = float(ra_y)
+        ay_res_unit = _U_FORCE
+        ay_header_line = ""
+        ay_calc = ""
+        fy_header_line = ""
+        fy_calc = ""
+        mg_line = ""
+        mg_calc = ""
+    elif support_mode == "cantilever" and cantilever_result is not None:
+        Lf = max(float(L), 1e-9)
+        m_a = float(cantilever_result.get("M_A", 0.0))
+        ay_val = float(cantilever_result.get("R_Ay", 0.0))
+        ma_line = ""
+        ma_calc = ""
+        mb_line = ""
+        mb_calc = ""
+        fy_terms = _fy_term_strings_vertical()
+        fy_left = " ".join(fy_terms) if fy_terms else "0"
+        # משוואה 2: מומנט בריתום → Ma
+        mg_line = f'{_sym_sigma()}M<sub>A</sub> = 0'
+        m_terms_a = _m_term_strings_about(0.0)
+        mg_parts = ["Ma"]
+        if m_terms_a:
+            mg_parts.extend(m_terms_a)
+        mg_calc = _join_calc_terms(mg_parts)
+        ma_res_name = "Ma"
+        ma_res_value = m_a
+        ma_res_unit = _U_MOMENT
+        # משוואה 3: ΣFy — קודם מומנט ב-G עם Ma מהמשוואה הקודמת, אחר כך אימות Fy
+        ay_header_line = f"{_sym_sigma()}Fy = 0"
+        m_terms_g = _m_term_strings_about(Lf)
+        ay_parts = [str(solver.format_number(m_a)), f"Ay·{solver.format_number(Lf)}"]
+        if m_terms_g:
+            ay_parts.extend(m_terms_g)
+        ay_calc = _join_calc_terms(ay_parts)
+        ay_res_name = "Ay"
+        ay_res_value = ay_val
+        ay_res_unit = _U_FORCE
+        fy_header_line = ""
+        fy_calc = f"{solver.format_number(ay_val)} + {fy_left}"
+    else:
+        ma_line = f"{_sym_sigma()}Ma = 0"
+        ma_calc = ""
+        ma_res_name = ""
+        ma_res_value = 0.0
+        ma_res_unit = ""
+        mb_line = ""
+        mb_calc = ""
+        ay_res_name = ""
+        ay_res_value = 0.0
+        ay_res_unit = ""
+        ay_header_line = ""
+        ay_calc = ""
+        fy_header_line = ""
+        fy_calc = ""
+        mg_line = ""
+        mg_calc = ""
+
+    if ma_calc:
+        ma_eq_html = html_lib.escape(ma_calc)
+        ma_inner = f"{ma_eq_html}{_nb_eq_answer_tail(ma_res_name, ma_res_value, ma_res_unit)}"
+        ma_calc_html = _nb_calc_eq_row(ma_inner, _LINE_UP_ONE_SQUARE)
+    else:
+        ma_calc_html = ""
+
+    if support_mode == "supports" and mb_line:
+        mb_eq_html = html_lib.escape(mb_calc)
+        ay_calc_html = _calc_row_with_answer(mb_eq_html, ay_res_name, ay_res_value, ay_res_unit, _LINE_UP_ONE_SQUARE)
+    elif support_mode == "cantilever" and ay_header_line:
+        mg_eq_html = html_lib.escape(mg_calc)
+        mg_inner = f"{mg_eq_html}{_nb_eq_answer_tail(ma_res_name, ma_res_value, ma_res_unit)}"
+        mg_calc_html = _nb_calc_eq_row(mg_inner, _LINE_UP_ONE_SQUARE)
+        ay_eq_html = html_lib.escape(ay_calc)
+        ay_inner = f"{ay_eq_html}{_nb_eq_answer_tail(ay_res_name, ay_res_value, ay_res_unit)}"
+        ay_calc_html = _nb_calc_eq_row(ay_inner, _LINE_UP_ONE_SQUARE)
+        fy_calc_html = ""
+        if fy_calc:
+            fy_calc_html = _nb_calc_eq_row(
+                f"{html_lib.escape(fy_calc)}{_nb_eq_zero_tail()}",
+                _LINE_UP_ONE_SQUARE,
+            )
+    else:
+        ay_calc_html = ""
+        mg_calc_html = ""
+        fy_calc_html = ""
+
+    calc_rows: List[str] = [
+        _nb_step_html_style(f"{_sym_sigma()}Fx = 0", "nb-eq"),
+        _nb_calc_eq_row(ax_line, _LINE_UP_ONE_SQUARE),
+    ]
+    if support_mode == "cantilever" and cantilever_result is not None:
+        calc_rows.append(_nb_step_html_style(mg_line, "nb-eq"))
+        if mg_calc_html:
+            calc_rows.append(mg_calc_html)
+        calc_rows.append(_nb_step_html_style(ay_header_line, "nb-eq"))
+        if ay_calc_html:
+            calc_rows.append(ay_calc_html)
+    else:
+        if ma_line:
+            calc_rows.append(_nb_step_html_style(ma_line, "nb-eq"))
+        if ma_calc_html:
+            calc_rows.append(ma_calc_html)
+        if mb_line:
+            calc_rows.append(_nb_step_html_style(mb_line, "nb-eq"))
+        if ay_calc_html:
+            calc_rows.append(ay_calc_html)
+
+    return "\n".join(
+        [
+            '<div style="width:100%;display:flex;justify-content:flex-start;">',
+            '<div class="nb-calc-block" style="width:100%;flex:0 0 auto;max-width:100%;margin-top:-34px;direction:ltr;text-align:left;unicode-bidi:plaintext;padding:0 6px 0 0;">',
+            '<div style="margin:0;padding:0;min-width:min-content;">',
+            *calc_rows,
+            "</div>",
+            "</div>",
+            "</div>",
+        ]
+    )
+
+
 def build_forces_figure(
     L: float,
     loads: List[dict],
@@ -1715,26 +2710,71 @@ def build_forces_figure(
     shears = np.array([solver.shear_force(x, loads, ra_y, rb_y, ra_pos, rb_pos) for x in xs])
     normals = np.array([solver.normal_force(x, loads, ra_x, ra_pos) for x in xs])
     _notebook_mpl_rc()
-    fig = plt.figure(figsize=(7.8, 4.6), facecolor="none")
+    fig = plt.figure(figsize=(7.8, 3.7), facecolor="none")
     _prep_figure_transparent(fig)
     gs = fig.add_gridspec(
-        3, 1, height_ratios=[1.0, 1.0, 1.0], hspace=0.16, left=0.2, right=0.94, top=0.98, bottom=0.08
+        3,
+        1,
+        height_ratios=[1.0, 1.0, 1.0],
+        hspace=0.16,
+        left=0.09,
+        right=0.99,
+        top=0.98,
+        bottom=0.08,
     )
     ax_n = fig.add_subplot(gs[0])
     Lf = float(L)
-    x_pad = _beam_x_pad(Lf)
+    x_pad = 0.0
     crit = station_labels(loads, L, ra_pos, rb_pos)
 
-    _plot_n_on_beam(ax_n, xs, normals, Lf, x_pad, crit, transparent=True)
-    _diagram_titles(fig, ax_n, "כוחות ציריים", f"N(x) [{_U_FORCE}]", _GREEN)
+    _plot_n_on_beam_clean(ax_n, xs, normals, Lf, x_pad, crit, transparent=True)
+    _diagram_side_labels(fig, ax_n, "N(x)", "t")
 
     ax_v = fig.add_subplot(gs[1], sharex=ax_n)
-    _plot_q_on_beam(ax_v, xs, shears, Lf, x_pad, crit, transparent=True)
-    _diagram_titles(fig, ax_v, "גזירה", f"Q(x) [{_U_FORCE}]", _BLUE)
+    _plot_q_on_beam_clean(ax_v, xs, shears, Lf, x_pad, crit, transparent=True)
+    _diagram_side_labels(fig, ax_v, "Q(x)", "t")
 
     ax_m = fig.add_subplot(gs[2], sharex=ax_n)
-    _plot_m_on_beam(ax_m, xs, moments, Lf, x_pad, crit, transparent=True)
-    _diagram_titles(fig, ax_m, "מומנטים", f"M(x) [{_U_MOMENT}]", _RED)
+    _plot_m_on_beam_clean(ax_m, xs, moments, Lf, x_pad, crit, transparent=True)
+    _diagram_side_labels(fig, ax_m, "M(x)", "t")
+
+    return fig
+
+
+def build_cantilever_forces_figure(loads: List[dict], L: float, result: Dict[str, Any]) -> Any:
+    """דיאגרמות N, Q, M לזיז — מתחת למשוואות."""
+    xs = np.asarray(result["xs"], dtype=float)
+    normals = np.asarray(result["normal"], dtype=float)
+    shears = np.asarray(result["shear"], dtype=float)
+    moments = np.asarray(result["moment"], dtype=float)
+    _notebook_mpl_rc()
+    fig = plt.figure(figsize=(7.8, 3.7), facecolor="none")
+    _prep_figure_transparent(fig)
+    gs = fig.add_gridspec(
+        3,
+        1,
+        height_ratios=[1.0, 1.0, 1.0],
+        hspace=0.16,
+        left=0.09,
+        right=0.99,
+        top=0.98,
+        bottom=0.08,
+    )
+    ax_n = fig.add_subplot(gs[0])
+    Lf = float(L)
+    x_pad = 0.0
+    crit = _cantilever_station_labels(loads, L)
+
+    _plot_n_on_beam_clean(ax_n, xs, normals, Lf, x_pad, crit, transparent=True)
+    _diagram_side_labels(fig, ax_n, "N(x)", "t")
+
+    ax_v = fig.add_subplot(gs[1], sharex=ax_n)
+    _plot_q_on_beam_clean(ax_v, xs, shears, Lf, x_pad, crit, transparent=True)
+    _diagram_side_labels(fig, ax_v, "Q(x)", "t")
+
+    ax_m = fig.add_subplot(gs[2], sharex=ax_n)
+    _plot_m_on_beam_clean(ax_m, xs, moments, Lf, x_pad, crit, transparent=True)
+    _diagram_side_labels(fig, ax_m, "M(x)", "t")
 
     return fig
 
@@ -1826,6 +2866,44 @@ def _nb_step(text: str, css: str = "nb-eq") -> str:
 def _nb_step_html(inner_html: str, css: str = "nb-eq") -> str:
     """שורת חישוב עם HTML בטוח (Σ, Δ, sub) — ללא escape על התוכן."""
     return f'<p class="nb-line {css}">{inner_html}</p>'
+
+
+def _nb_step_html_style(inner_html: str, css: str = "nb-eq", style: str = "") -> str:
+    """כמו _nb_step_html, אבל עם style inline (ליישור/מרווחים עקביים)."""
+    st = f' style="{style}"' if str(style).strip() else ""
+    return f'<p class="nb-line {css}"{st}>{inner_html}</p>'
+
+
+def _nb_calc_eq_row(inner_html: str, line_style: str = "") -> str:
+    """שורת משוואה מלאה (כולל =0 ותשובה) — שורה אחת, גלילה אם ארוך."""
+    return _nb_step_html_style(inner_html, "nb-eq nb-eq-oneline", line_style)
+
+
+def _join_calc_terms(parts: List[str]) -> str:
+    """חיבור איברי משוואה; כל איבר (מלבד הראשון) כבר נושא סימן +/-."""
+    cleaned: List[str] = []
+    for i, p in enumerate(parts):
+        p = str(p).strip()
+        if not p:
+            continue
+        if i == 0 and p.startswith("+"):
+            p = p[1:].strip()
+        if i > 0 and not p.startswith(("+", "-")):
+            p = f"+ {p}"
+        cleaned.append(p)
+    return " ".join(cleaned) if cleaned else "0"
+
+
+def _nb_eq_zero_tail() -> str:
+    """'= 0' בסוף משוואה — לא נשבר לשורה נפרדת."""
+    return '<span class="nb-eq-tail"> = 0</span>'
+
+
+def _nb_eq_answer_tail(ans_name: str, ans_value: float, ans_unit: str) -> str:
+    """'= 0' + פסיק + תשובה — נשארים באותה שורה אחרי המשוואה."""
+    ans_txt = f"{ans_name} = {solver.format_number(ans_value)} {ans_unit}".strip()
+    ans_html = f'<span class="nb-box nb-box-answer">{html_lib.escape(ans_txt)}</span>'
+    return f'<span class="nb-eq-tail"> = 0&nbsp;&nbsp;&nbsp;,&nbsp;{ans_html}</span>'
 
 
 def _nb_answer_box(inner_html: str) -> str:
@@ -2039,22 +3117,53 @@ def build_page_html(
     rb_x: float,
     rb_y: float,
 ) -> Tuple[str, bytes]:
-    fig_beam = build_beam_figure(L, loads, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y)
-    png_beam = _fig_to_png_bytes(fig_beam, on_paper=True, pad_inches=0.08)
-    plt.close(fig_beam)
-    png_download = png_beam
-    b64_beam = base64.b64encode(png_beam).decode("ascii")
-    calc = _build_calc_html(loads, L, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y)
-    body = f"""
-<div class="nb-row">
-  <div class="nb-col-left">
-    <div class="nb-beam-zone">
-      <img src="data:image/png;base64,{b64_beam}" alt="שרטוט קורה ודיאגרמות N Q M"/>
-    </div>
-  </div>
-  {calc}
-</div>
-"""
+    png_display, png_download = _notebook_graphics_assets(
+        mode="supports",
+        loads=loads,
+        L=L,
+        ra_pos=ra_pos,
+        rb_pos=rb_pos,
+        ra_x=ra_x,
+        ra_y=ra_y,
+        rb_x=rb_x,
+        rb_y=rb_y,
+    )
+    fig_forces = build_forces_figure(L, loads, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y)
+    png_forces = _fig_to_png_bytes(fig_forces, on_paper=True, pad_inches=0.04)
+    plt.close(fig_forces)
+    rows_pts = _values_at_stations(loads, L, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y)
+    pts_html = _point_calc_grid_html(
+        rows_pts,
+        loads=loads,
+        support_mode="supports",
+        L=L,
+        ra_pos=ra_pos,
+        rb_pos=rb_pos,
+        ra_x=ra_x,
+        ra_y=ra_y,
+        rb_y=rb_y,
+    )
+
+    forces_html = (
+        f'<div class="nb-forces-zone">'
+        f'<img src="data:image/png;base64,{base64.b64encode(png_forces).decode("ascii")}" alt="NQM diagrams"/>'
+        f"</div>"
+    )
+    pts_scroll = f'<div class="nb-point-calc-scroll">{pts_html}</div>'
+    body = _notebook_graphics_html(
+        png_display,
+        _notebook_calc_stub_under_beam(
+            loads,
+            ra_x,
+            support_mode="supports",
+            ra_pos=ra_pos,
+            rb_pos=rb_pos,
+            ra_y=ra_y,
+            rb_y=rb_y,
+        )
+        + forces_html
+        + pts_scroll,
+    )
     return _wrap_iframe_document(body), png_download
 
 
@@ -2092,6 +3201,7 @@ def render_solved_notebook(
 ) -> None:
     if not loads:
         st.info("הוסף עומסים על הקורה (בסרגל או בלוח) כדי לראות כאן תרגיל פתור במחברת.")
+        st.caption("אם העומסים כבר מופיעים בלוח — לחץ **Apply changes** כדי לשמור אותם לחישוב ולמחברת.")
         return
     nb = _load_live_notebook_module()
     nb_path = Path(nb.__file__).resolve()
@@ -2109,4 +3219,78 @@ def render_solved_notebook(
         file_name="beam-solved-notebook.png",
         mime="image/png",
         key="notebook_png_download",
+    )
+
+
+def _cantilever_station_labels(loads: List[dict], L: float) -> List[Tuple[float, str]]:
+    xs = solver.critical_x_positions(loads, L, 0.0, L)
+    labels: Dict[float, str] = {0.0: "A", round(float(L), 6): "G"}
+    letters = "BCDEFHIJKLMNOPQRSTUVWXYZ"
+    li = 0
+    for x in xs:
+        k = round(float(x), 6)
+        if k not in labels:
+            labels[k] = letters[li] if li < len(letters) else f"P{li}"
+            li += 1
+    return [(x, labels[round(float(x), 6)]) for x in xs]
+
+
+def build_cantilever_page_html(loads: List[dict], L: float, result: Dict[str, Any]) -> Tuple[str, bytes]:
+    png_display, png_download = _notebook_graphics_assets(
+        mode="cantilever",
+        loads=loads,
+        L=L,
+        result=result,
+    )
+    fig_forces = build_cantilever_forces_figure(loads, L, result)
+    png_forces = _fig_to_png_bytes(fig_forces, on_paper=True, pad_inches=0.04)
+    plt.close(fig_forces)
+    rows_pts = _cantilever_values_at_stations(loads, L, result)
+    pts_html = _point_calc_grid_html(
+        rows_pts,
+        loads=loads,
+        support_mode="cantilever",
+        L=L,
+        cantilever_result=result,
+    )
+
+    forces_html = (
+        f'<div class="nb-forces-zone">'
+        f'<img src="data:image/png;base64,{base64.b64encode(png_forces).decode("ascii")}" alt="NQM diagrams"/>'
+        f"</div>"
+    )
+    pts_scroll = f'<div class="nb-point-calc-scroll">{pts_html}</div>'
+    body = _notebook_graphics_html(
+        png_display,
+        _notebook_calc_stub_under_beam(
+            loads,
+            float(result.get("R_Ax", 0.0)),
+            L=L,
+            support_mode="cantilever",
+            cantilever_result=result,
+        )
+        + forces_html
+        + pts_scroll,
+    )
+    return _wrap_iframe_document(body), png_download
+
+
+def render_cantilever_notebook(loads: List[dict], L: float, result: Dict[str, Any]) -> None:
+    if not loads:
+        st.info("הוסף עומסים על הקורה כדי לראות כאן תרגיל זיז פתור במחברת.")
+        return
+    nb = _load_live_notebook_module()
+    nb_path = Path(nb.__file__).resolve()
+    st.caption(f"דף **A4** (חצי־חצי) · קובץ: `{nb_path.name}`")
+    page_html, png_bytes = nb.build_cantilever_page_html(loads, L, result)
+    try:
+        st.html(page_html, width="stretch")
+    except Exception:
+        components.html(page_html, height=_A4_IFRAME_HEIGHT_PX, scrolling=False)
+    st.download_button(
+        "הורדת שרטוט זיז (PNG)",
+        data=png_bytes,
+        file_name="beam-cantilever-solved-notebook.png",
+        mime="image/png",
+        key="cantilever_notebook_png_download",
     )

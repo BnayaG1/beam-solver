@@ -27,6 +27,11 @@ html,body{margin:0;padding:0;font-family:'Rubik','Heebo','Segoe UI',Tahoma,Genev
 #wrap{display:flex;flex-direction:column;gap:14px;padding:12px 14px 16px;max-width:100%;direction:rtl;background:#f8fafc}
 
 
+#board-instructions{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:12px 16px;box-shadow:0 8px 24px rgba(15,23,42,.06);direction:rtl;text-align:right;line-height:1.55}
+#board-instructions .board-instructions-title{margin:0 0 8px 0;font-size:14px;font-weight:700;color:#0f172a}
+#board-instructions ol{margin:0 0 8px 0;padding:0 1.15rem 0 0;font-size:13px;color:#334155}
+#board-instructions ol li{margin:4px 0}
+#board-instructions .board-instructions-footer{margin:0;font-size:13px;color:#475569}
 #toolbar{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:12px 14px;box-shadow:0 8px 24px rgba(15,23,42,.06)}
 
 
@@ -43,7 +48,6 @@ html,body{margin:0;padding:0;font-family:'Rubik','Heebo','Segoe UI',Tahoma,Genev
 
 
 .tb-group{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-
 
 .tb-length{justify-content:flex-start}
 .tb-length label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#334155}
@@ -150,6 +154,17 @@ canvas{display:block;width:100%;height:360px;cursor:crosshair}
 
 
 <div id="wrap">
+
+<div id="board-instructions">
+<p class="board-instructions-title">הוראות לbeam_solver היפה שלי:</p>
+<ol>
+<li>רשמו את אורך הקורה.</li>
+<li>לחצו על snap והקלידו את מיקומי הנקודות הרלוונטיות לתרגיל ובסיום לחצו על Done.</li>
+<li>שימו עומסים לבחירתכם (העומסים ימשכו לנקודות שיצרתם).</li>
+<li>לסיום לחצו על apply change.</li>
+</ol>
+<p class="board-instructions-footer">גלגלו למטה לראות את הריאקציות והגרפים המותאים לתרגיל שלכם, ואם תרצו גם פתרון התרגיל המלא במחברת מסודר גם בתפריט.</p>
+</div>
 
 <div id="toolbar">
 
@@ -269,11 +284,14 @@ function markCanvasDirty(){canvasDirty=true;}
 function parentItemsKey(arr){try{return JSON.stringify(arr||[]);}catch(ek){return "";}}
 
 
-function measureComponentHeight(){var wrap=document.getElementById("wrap");if(!wrap)return 760;var top=wrap.getBoundingClientRect().top,bottom=top;function bump(id){var el=document.getElementById(id);if(!el)return;var r=el.getBoundingClientRect();if(r.height>0)bottom=Math.max(bottom,r.bottom);}bump("board-footer");bump("board-actions");bump("snapPanel");bump("chainPanel");var h=Math.max(bottom-top,wrap.scrollHeight,wrap.offsetHeight);return Math.ceil(h+16);}
+function measureComponentHeight(){var wrap=document.getElementById("wrap");if(!wrap)return 760;var top=wrap.getBoundingClientRect().top,bottom=top;function bump(id){var el=document.getElementById(id);if(!el)return;var r=el.getBoundingClientRect();if(r.height>0)bottom=Math.max(bottom,r.bottom);}bump("board-instructions");bump("toolbar");bump("board-footer");bump("board-actions");bump("snapPanel");bump("chainPanel");var h=Math.max(bottom-top,wrap.scrollHeight,wrap.offsetHeight);return Math.ceil(h+16);}
 function notifyHeight(){function apply(){try{var pr=document.getElementById("props");var propsOn=pr&&pr.style.display!=="none"&&pr.childElementCount>0;var h=measureComponentHeight();if(propsOn)h+=32;h=Math.min(1150,Math.max(660,h));Streamlit.setFrameHeight(h);}catch(eh){}}requestAnimationFrame(function(){requestAnimationFrame(apply);});setTimeout(apply,80);setTimeout(apply,220);}
 
 
 function clearAllBeamObjects(){G.items=[];G.snapPoints=[];G.snapCursorXw=null;G.selectedId=null;G.drag=null;G.chain={active:false,cursorXw:null,marks:[],previewXw:null};markCanvasDirty();drawAll();syncProps();syncChainPanel();syncSnapPanel();}
+
+
+
 
 
 function fmtX(v){return Math.round(v*1000)/1000;}
@@ -446,9 +464,7 @@ return null;}
 
 function drawNotebookPaper(g){ctx.fillStyle=NB_PAPER;ctx.fillRect(0,0,g.w,g.h);ctx.save();ctx.strokeStyle=NB_GRID;ctx.lineWidth=0.55;ctx.globalAlpha=0.85;for(var gx=g.pad;gx<=g.w-g.pad;gx+=NB_GRID_STEP){ctx.beginPath();ctx.moveTo(gx,12);ctx.lineTo(gx,g.h-12);ctx.stroke();}for(var gy=12;gy<=g.h-12;gy+=NB_GRID_STEP){ctx.beginPath();ctx.moveTo(g.pad,gy);ctx.lineTo(g.w-g.pad,gy);ctx.stroke();}ctx.restore();}
 
-
 function dimensionTickXs(){var pts=[0,G.L];function add(x){x=clampX(parseFloat(x)||0);if(x>1e-6&&x<G.L-1e-6)pts.push(x);}if(G.supportMode!=="fixed"){add(G.ra);add(G.rb);}for(var i=0;i<G.items.length;i++){var it=G.items[i];if(it.type==="distributed"){add(it.x1);add(it.x2);}else if(it.x!=null){add(it.x);}}if(G.snapPoints){for(var s=0;s<G.snapPoints.length;s++)add(G.snapPoints[s]);}if(G.chain&&G.chain.marks){for(var c=0;c<G.chain.marks.length;c++)add(G.chain.marks[c].x);}pts.sort(function(a,b){return a-b;});var out=[];for(var j=0;j<pts.length;j++){if(!out.length||Math.abs(pts[j]-out[out.length-1])>1e-4)out.push(pts[j]);}return out;}
-
 
 function drawFullBeamDimension(g){var yD=g.y+NB_GRID_STEP*5,tick=12;var xs=dimensionTickXs();ctx.save();ctx.strokeStyle=NB_INK;ctx.fillStyle=NB_INK;ctx.lineWidth=1.5;ctx.lineCap="butt";ctx.font=canvasFont(11,500);ctx.textAlign="center";ctx.textBaseline="bottom";
 ctx.beginPath();ctx.moveTo(g.pad,yD);ctx.lineTo(g.w-g.pad,yD);ctx.stroke();
@@ -456,22 +472,17 @@ for(var i=0;i<xs.length;i++){var px=xPix(xs[i]);ctx.beginPath();ctx.moveTo(px,yD
 for(var k=0;k<xs.length-1;k++){var seg=xs[k+1]-xs[k];if(seg>0.02){ctx.fillText(String(fmtX(seg)),xPix((xs[k]+xs[k+1])/2),yD-6);}}
 ctx.restore();}
 
-
 function drawSupportDimension(g){if(G.supportMode==="fixed")return;var a=Math.min(G.ra,G.rb),b=Math.max(G.ra,G.rb);if(Math.abs(b-a)<1e-6)return;var yD=g.y+NB_GRID_STEP*7;var tick=14;var pa=xPix(a),pb=xPix(b);ctx.save();ctx.strokeStyle=NB_INK;ctx.fillStyle=NB_INK;ctx.lineWidth=1.5;ctx.lineCap="butt";ctx.font=canvasFont(11,500);ctx.textAlign="center";ctx.textBaseline="top";
 ctx.beginPath();ctx.moveTo(pa,yD);ctx.lineTo(pb,yD);ctx.stroke();
 ctx.beginPath();ctx.moveTo(pa,yD);ctx.lineTo(pa,yD-tick);ctx.moveTo(pb,yD);ctx.lineTo(pb,yD-tick);ctx.stroke();
 ctx.fillText(String(fmtX(b-a)),(pa+pb)/2,yD+8);
 ctx.restore();}
 
-
 function drawFixedSupport(){var g=geom(),px=xPix(0),half=34,top=g.y-half,bottom=g.y+half,hatch=16;ctx.save();ctx.strokeStyle=NB_INK;ctx.lineWidth=3;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,bottom);ctx.stroke();ctx.lineWidth=1.6;var n=6;for(var i=0;i<n;i++){var yy=top+(i*(bottom-top))/Math.max(1,(n-1));ctx.beginPath();ctx.moveTo(px-hatch,yy+8);ctx.lineTo(px,yy);ctx.stroke();}ctx.restore();}
-
 
 function fixedToggleRect(g){return{x:g.w-g.pad-86,y:g.y+NB_GRID_STEP*3,w:78,h:26};}
 
-
 function hitFixedToggle(mx,my){var r=fixedToggleRect(geom());return mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h;}
-
 
 function drawFixedToggle(g){var r=fixedToggleRect(g),on=G.supportMode==="fixed";ctx.save();ctx.fillStyle=on?"#d1fae5":"#ffffff";ctx.strokeStyle=on?"#0f766e":"#cbd5e1";ctx.lineWidth=1.5;ctx.beginPath();ctx.roundRect(r.x,r.y,r.w,r.h,8);ctx.fill();ctx.stroke();ctx.fillStyle=on?"#065f46":"#334155";ctx.font=canvasFont(12,700);ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("Fixed",r.x+r.w/2,r.y+r.h/2);ctx.restore();}
 
@@ -681,7 +692,6 @@ ctx.font=canvasFont(11,500);drawCanvasLabel(g.w-g.pad+14,g.y,String(G.L),NB_INK,
 
 
 if(G.supportMode==="fixed"){drawFixedSupport();}else{drawSup(G.ra,"","A");drawSup(G.rb,"","B");}
-
 
 drawFullBeamDimension(g);drawSupportDimension(g);
 
@@ -1006,7 +1016,7 @@ btn.addEventListener("click",function(){
 var mode=String(btn.getAttribute("data-support-mode")||"simple").toLowerCase();if(mode!=="fixed")mode="simple";
 G.supportMode=mode;
 if(G.supportMode==="fixed"){G.ra=0;G.rb=G.L;}
-document.querySelectorAll("[data-support-mode]").forEach(function(b){b.classList.toggle("on",b.getAttribute("data-support-mode")===G.supportMode);});
+document.querySelectorAll("[data-support-mode]").forEach(function(b){b.classList.toggle("on",b===btn);});
 markCanvasDirty();switchToMoveTool();drawAll();syncProps();syncChainPanel();syncSnapPanel();notifyHeight();
 });});
 
@@ -1183,6 +1193,9 @@ Streamlit.setComponentValue({applied:true,ts:Date.now(),L:G.L,ra:G.ra,rb:G.rb,su
 Streamlit.events.addEventListener(Streamlit.RENDER_EVENT,function(ev){onRender(ev);setTimeout(function(){resizeCv();notifyHeight();},0);});
 
 
+
+
+
 document.getElementById("chainAddBtn").addEventListener("click",function(){
 
 
@@ -1246,3 +1259,5 @@ setTimeout(function(){resizeCv();notifyHeight();},80);})();
 
 
 </body></html>
+
+

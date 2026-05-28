@@ -161,6 +161,150 @@ def normal_force(x: float, loads: List[dict], ra_x: float, ra_pos: float) -> flo
     return N
 
 
+def solve_cantilever_beam(loads: List[dict], L: float) -> Dict[str, Any]:
+    """Independent fixed-left/free-right cantilever solution. Fixed support at x=0."""
+    if L <= 0:
+        raise ValueError("אורך הקורה חייב להיות חיובי.")
+    sum_fx = 0.0
+    sum_fy = 0.0
+    load_moment_about_wall = 0.0
+    positions = [0.0, float(L)]
+    for load in loads:
+        if load["type"] == "point":
+            x = float(load["x"])
+            fy = float(load["Fy"])
+            fx = float(load.get("Fx", 0.0))
+            sum_fx += fx
+            sum_fy += fy
+            load_moment_about_wall += fy * x
+            positions.append(x)
+        elif load["type"] == "distributed":
+            x1 = float(load["x1"])
+            x2 = float(load["x2"])
+            w = float(load["w"])
+            span = x2 - x1
+            resultant = w * span
+            centroid = (x1 + x2) / 2.0
+            sum_fy += resultant
+            load_moment_about_wall += resultant * centroid
+            positions.extend([x1, x2])
+        elif load["type"] == "moment":
+            x = float(load["x"])
+            load_moment_about_wall -= float(load["M"])
+            positions.append(x)
+        elif load["type"] == "inclined":
+            x = float(load["x"])
+            fx = float(load["Fx"])
+            fy = float(load["Fy"])
+            sum_fx += fx
+            sum_fy += fy
+            load_moment_about_wall += fy * x
+            positions.append(x)
+
+    reaction_x = -sum_fx
+    reaction_y = -sum_fy
+    reaction_moment = load_moment_about_wall
+    diagram_fixed_moment = load_moment_about_wall
+    xs = beam_plot_x_coords(float(L), positions)
+    shear = np.array([cantilever_shear_force(x, loads, reaction_y) for x in xs], dtype=float)
+    moment = np.array(
+        [cantilever_bending_moment(x, loads, reaction_y, diagram_fixed_moment) for x in xs],
+        dtype=float,
+    )
+    normal = np.array([normal_force(x, loads, reaction_x, 0.0) for x in xs], dtype=float)
+    return {
+        "R_Ax": reaction_x,
+        "R_Ay": reaction_y,
+        "M_A": reaction_moment,
+        "diagram_fixed_moment": diagram_fixed_moment,
+        "xs": xs,
+        "shear": shear,
+        "moment": moment,
+        "normal": normal,
+    }
+
+
+def cantilever_shear_force(x: float, loads: List[dict], reaction_y: float) -> float:
+    V = float(reaction_y)
+    for load in loads:
+        if load["type"] == "point":
+            if x >= load["x"]:
+                V += float(load["Fy"])
+        elif load["type"] == "distributed":
+            x1, x2, w = float(load["x1"]), float(load["x2"]), float(load["w"])
+            if x >= x1:
+                V += w * (min(float(x), x2) - x1)
+        elif load["type"] == "inclined":
+            if x >= load["x"]:
+                V += float(load["Fy"])
+    return V
+
+
+def cantilever_bending_moment(
+    x: float, loads: List[dict], reaction_y: float, fixed_moment: float
+) -> float:
+    M = float(fixed_moment) + float(reaction_y) * float(x)
+    for load in loads:
+        if load["type"] == "point":
+            if x >= load["x"]:
+                M += float(load["Fy"]) * (float(x) - float(load["x"]))
+        elif load["type"] == "distributed":
+            M += _moment_from_udl_about_cut(
+                float(load["w"]), float(load["x1"]), float(load["x2"]), float(x)
+            )
+        elif load["type"] == "moment":
+            if x >= load["x"]:
+                M += float(load["M"])
+        elif load["type"] == "inclined":
+            if x >= load["x"]:
+                M += float(load["Fy"]) * (float(x) - float(load["x"]))
+    return M
+
+
+def get_cantilever_calculation_steps(
+    loads: List[dict], L: float, result: Dict[str, Any]
+) -> List[str]:
+    lines = [
+        "מודל: זיז רתום משמאל ב-x=0 וחופשי מימין. התגובות מחושבות בבלוק נפרד ממודל שני הסמכים.",
+        f"L={L:g} m; ריתום ב-A: x=0.",
+    ]
+    sum_fx = sum_fy = moment_about_wall = 0.0
+    for i, load in enumerate(loads, 1):
+        if load["type"] == "point":
+            fx = float(load.get("Fx", 0.0))
+            fy = float(load["Fy"])
+            m = fy * float(load["x"])
+            sum_fx += fx
+            sum_fy += fy
+            moment_about_wall += m
+            lines.append(f"עומס {i} נקודתי: Fx={fx:g}, Fy={fy:g}; Fy*x={m:g} kN·m.")
+        elif load["type"] == "distributed":
+            span = float(load["x2"]) - float(load["x1"])
+            resultant = float(load["w"]) * span
+            centroid = (float(load["x1"]) + float(load["x2"])) / 2.0
+            m = resultant * centroid
+            sum_fy += resultant
+            moment_about_wall += m
+            lines.append(f"עומס {i} מפולג: R={resultant:g}, x_c={centroid:g}; R*x_c={m:g} kN·m.")
+        elif load["type"] == "moment":
+            m = -float(load["M"])
+            moment_about_wall += m
+            lines.append(f"עומס {i} מומנט טהור: תרומה ל-M_A={m:g} kN·m.")
+        elif load["type"] == "inclined":
+            fx = float(load["Fx"])
+            fy = float(load["Fy"])
+            m = fy * float(load["x"])
+            sum_fx += fx
+            sum_fy += fy
+            moment_about_wall += m
+            lines.append(f"עומס {i} אלכסוני: Fx={fx:g}, Fy={fy:g}; Fy*x={m:g} kN·m.")
+    lines.append(f"ΣFy(loads)={sum_fy:g}; ΣFx(loads)={sum_fx:g}; ΣM_loads@A={moment_about_wall:g}.")
+    lines.append(f"R_Ay = -ΣFy = {result['R_Ay']:g} kN.")
+    lines.append(f"R_Ax = -ΣFx = {result['R_Ax']:g} kN.")
+    lines.append(f"M_A = ΣM_loads@A = {result['M_A']:g} kN·m (בסימן דיאגרמת הכפיפה).")
+    return lines
+
+
 def get_calculation_steps(
     loads: List[dict],
     L: float,
