@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import base64
 import json
+import math
+import random
 import ssl
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -73,7 +76,11 @@ def inject_ui_styles() -> None:
             padding-right: 1.5rem;
         }
 
-        /* —— Sidebar: light tablet panel —— */
+        section[data-testid="stSidebar"] {
+            display: none !important;
+        }
+
+        /* —— Sidebar: light tablet panel (hidden; styles kept for optional future use) —— */
         section[data-testid="stSidebar"] {
             background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
             border-left: 1px solid var(--beam-border);
@@ -284,9 +291,6 @@ def inject_ui_styles() -> None:
         [data-testid="stFileUploader"] {
             border-radius: 14px;
         }
-        section[data-testid="stSidebar"] {
-            display: none !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -315,6 +319,921 @@ def inject_ui_styles() -> None:
     )
 
 
+def _clear_load_session_keys(max_slots: int = 20) -> None:
+    for i in range(max_slots):
+        for key in (
+            f"load_type_{i}",
+            f"point_x_{i}",
+            f"point_Fy_{i}",
+            f"point_dir_{i}",
+            f"point_Fx_{i}",
+            f"dist_x1_{i}",
+            f"dist_x2_{i}",
+            f"dist_w_{i}",
+            f"moment_x_{i}",
+            f"moment_M_{i}",
+            f"inclined_x_{i}",
+            f"inclined_Fx_{i}",
+            f"inclined_Fy_{i}",
+        ):
+            st.session_state.pop(key, None)
+
+
+def canvas_notebook_ready() -> bool:
+    """מחברת וחישובי תוצאות מלאים רק אחרי Apply changes בלוח."""
+    return bool(st.session_state.get("beam_canvas_applied", True))
+
+
+def _apply_analysis_loads_to_session(
+    L: float,
+    loads: List[dict],
+    *,
+    commit_for_notebook: bool = True,
+    ra: Optional[float] = None,
+    rb: Optional[float] = None,
+) -> None:
+    """כותב עומסים ל-session + מסנכרן ללוח. commit_for_notebook=False אחרי תרגיל אקראי (דורש Apply)."""
+    Lm = max(0.1, float(L))
+    _clear_load_session_keys()
+    st.session_state["beam_L"] = Lm
+    support_mode = str(st.session_state.get("beam_support_mode", "simple")).lower()
+    if support_mode == "fixed":
+        st.session_state["beam_ra_pos"] = 0.0
+        st.session_state["beam_rb_pos"] = Lm
+    else:
+        if ra is None or rb is None:
+            st.session_state["beam_ra_pos"] = 0.0
+            st.session_state["beam_rb_pos"] = Lm
+        else:
+            ra_v = max(0.0, min(Lm, float(ra)))
+            rb_v = max(0.0, min(Lm, float(rb)))
+            if rb_v < ra_v:
+                ra_v, rb_v = rb_v, ra_v
+            st.session_state["beam_ra_pos"] = ra_v
+            st.session_state["beam_rb_pos"] = rb_v
+
+    n = max(0, min(len(loads), 20))
+    st.session_state["beam_load_count"] = n
+    for i in range(n):
+        ld = loads[i]
+        t = str(ld.get("type", "point"))
+        st.session_state[f"load_type_{i}"] = t
+        if t == "point":
+            fy_val = float(ld.get("Fy", -10.0))
+            st.session_state[f"point_x_{i}"] = max(0.0, min(Lm, float(ld.get("x", Lm / 2))))
+            st.session_state[f"point_dir_{i}"] = "up" if fy_val > 0 else "down"
+            st.session_state[f"point_Fy_{i}"] = abs(fy_val)
+            st.session_state[f"point_Fx_{i}"] = float(ld.get("Fx", 0.0))
+        elif t == "distributed":
+            x1 = max(0.0, min(Lm, float(ld.get("x1", 0.0))))
+            x2 = max(0.0, min(Lm, float(ld.get("x2", Lm))))
+            if x2 < x1:
+                x1, x2 = x2, x1
+            st.session_state[f"dist_x1_{i}"] = x1
+            st.session_state[f"dist_x2_{i}"] = x2
+            st.session_state[f"dist_w_{i}"] = abs(float(ld.get("w", -1.0)))
+        elif t == "moment":
+            st.session_state[f"moment_x_{i}"] = max(0.0, min(Lm, float(ld.get("x", Lm / 2))))
+            st.session_state[f"moment_M_{i}"] = float(ld.get("M", 10.0))
+        else:
+            fy_val = float(ld.get("Fy", -10.0))
+            st.session_state[f"inclined_x_{i}"] = max(0.0, min(Lm, float(ld.get("x", Lm / 2))))
+            st.session_state[f"inclined_Fx_{i}"] = float(ld.get("Fx", 0.0))
+            st.session_state[f"inclined_Fy_{i}"] = abs(fy_val)
+
+    snap_pts: List[float] = []
+    for ld in loads:
+        t = ld.get("type")
+        if t == "point" or t == "moment" or t == "inclined":
+            snap_pts.append(max(0.0, min(Lm, float(ld.get("x", 0.0)))))
+        elif t == "distributed":
+            snap_pts.append(max(0.0, min(Lm, float(ld.get("x1", 0.0)))))
+            snap_pts.append(max(0.0, min(Lm, float(ld.get("x2", 0.0)))))
+    st.session_state["beam_snap_points"] = sorted(set(round(x, 3) for x in snap_pts))
+
+    session_loads = loads_from_sidebar_session(Lm, n)
+    st.session_state["_beam_canvas_last_export"] = internal_loads_to_canvas_items(session_loads)
+    st.session_state["_beam_board_nonce"] = time.time_ns()
+    if commit_for_notebook:
+        st.session_state["beam_canvas_loads"] = session_loads
+        st.session_state["beam_canvas_applied"] = True
+    else:
+        st.session_state.pop("beam_canvas_loads", None)
+        st.session_state["beam_canvas_applied"] = False
+
+
+MIN_LOAD_POINT_SPACING = 0.9
+
+
+def _beam_station_bounds(L: float) -> Tuple[float, float]:
+    """טווח מותר לנקודות עומס: לפחות 0.9 m מכל קצה קורה."""
+    Lm = max(MIN_LOAD_POINT_SPACING, float(L))
+    c = MIN_LOAD_POINT_SPACING
+    if Lm < 2.0 * c - 1e-9:
+        return 0.0, Lm
+    return c, Lm - c
+
+
+def _clamp_station_on_beam(x: float, L: float, *, decimals: Optional[int]) -> float:
+    lo, hi = _beam_station_bounds(L)
+    return _round_to_decimals(max(lo, min(hi, float(x))), decimals)
+
+
+def _round_to_decimals(x: float, decimals: Optional[int]) -> float:
+    if decimals is None:
+        return float(x)
+    if decimals <= 0:
+        return float(int(round(float(x))))
+    return round(float(x), int(decimals))
+
+
+def _enforce_min_station_spacing(
+    L: float, loads: List[dict], *, min_spacing: float = MIN_LOAD_POINT_SPACING, decimals: Optional[int]
+) -> List[dict]:
+    """אכיפה: לא יהיה מרחק קטן מ-min_spacing בין אף שתי נקודות מישור (x, x1, x2)."""
+    Lm = max(0.1, float(L))
+    # refs contains load-stations plus fixed beam ends (0, L)
+    refs: List[Tuple[int, str]] = [(-1, "beam_left"), (-2, "beam_right")]
+    for i, ld in enumerate(loads):
+        t = str(ld.get("type", ""))
+        if t == "distributed":
+            refs.append((i, "x1"))
+            refs.append((i, "x2"))
+        elif t in ("point", "moment", "inclined"):
+            refs.append((i, "x"))
+
+    def get_val(ref: Tuple[int, str]) -> float:
+        i, k = ref
+        if i == -1:
+            return 0.0
+        if i == -2:
+            return float(Lm)
+        return float(loads[i].get(k, 0.0))
+
+    def set_val(ref: Tuple[int, str], v: float) -> None:
+        i, k = ref
+        if i < 0:
+            return
+        vv = max(0.0, min(Lm, float(v)))
+        loads[i][k] = _round_to_decimals(vv, decimals)
+
+    # Normalize first (clamp + order for distributed)
+    for i, ld in enumerate(loads):
+        t = str(ld.get("type", ""))
+        if t == "distributed":
+            x1 = max(0.0, min(Lm, float(ld.get("x1", 0.0))))
+            x2 = max(0.0, min(Lm, float(ld.get("x2", Lm))))
+            if x2 < x1:
+                x1, x2 = x2, x1
+            ld["x1"] = _round_to_decimals(x1, decimals)
+            ld["x2"] = _round_to_decimals(x2, decimals)
+            if float(ld["x2"]) - float(ld["x1"]) < min_spacing:
+                x2n = min(Lm, float(ld["x1"]) + min_spacing)
+                x1n = float(ld["x1"])
+                if x2n - x1n < min_spacing:
+                    x1n = max(0.0, Lm - min_spacing)
+                    x2n = Lm
+                ld["x1"] = _round_to_decimals(x1n, decimals)
+                ld["x2"] = _round_to_decimals(x2n, decimals)
+        elif t in ("point", "moment", "inclined"):
+            ld["x"] = _round_to_decimals(max(0.0, min(Lm, float(ld.get("x", Lm / 2)))), decimals)
+
+    if len(refs) < 3:
+        return loads
+
+    # Iteratively enforce spacing (forward/backward sweeps)
+    for _ in range(6):
+        def _ref_sort_key(r: Tuple[int, str]) -> Tuple[float, int]:
+            v = get_val(r)
+            # Tie-breaker so beam ends behave as immovable extremes:
+            # - left end comes before any load at x=0
+            # - right end comes after any load at x=L
+            if r[0] == -1:
+                pr = 0
+            elif r[0] == -2:
+                pr = 2
+            else:
+                pr = 1
+            return (v, pr)
+
+        refs_sorted = sorted(refs, key=_ref_sort_key)
+        # Forward sweep
+        prev = get_val(refs_sorted[0])
+        for r in refs_sorted[1:]:
+            v = get_val(r)
+            if v < prev + min_spacing - 1e-12:
+                v = prev + min_spacing
+                set_val(r, v)
+            prev = get_val(r)
+
+        # Backward if overflow
+        refs_sorted = sorted(refs, key=_ref_sort_key)
+        for j in range(len(refs_sorted) - 2, -1, -1):
+            nxt = get_val(refs_sorted[j + 1])
+            v = get_val(refs_sorted[j])
+            if v > nxt - min_spacing + 1e-12:
+                set_val(refs_sorted[j], nxt - min_spacing)
+
+        # Re-normalize distributed spans after moves
+        for i, ld in enumerate(loads):
+            if str(ld.get("type", "")) != "distributed":
+                continue
+            x1 = max(0.0, min(Lm, float(ld.get("x1", 0.0))))
+            x2 = max(0.0, min(Lm, float(ld.get("x2", Lm))))
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if x2 - x1 < min_spacing:
+                x2 = min(Lm, x1 + min_spacing)
+                if x2 - x1 < min_spacing:
+                    x1 = max(0.0, Lm - min_spacing)
+                    x2 = Lm
+            ld["x1"] = _round_to_decimals(x1, decimals)
+            ld["x2"] = _round_to_decimals(x2, decimals)
+
+    return loads
+
+
+def _enforce_beam_end_clearance(
+    L: float,
+    loads: List[dict],
+    *,
+    clearance: float = MIN_LOAD_POINT_SPACING,
+    decimals: Optional[int],
+) -> List[dict]:
+    """לפחות clearance בין קצה קורה (0, L) לכל נקודת מישור."""
+    Lm = max(MIN_LOAD_POINT_SPACING, float(L))
+    lo_b, hi_b = _beam_station_bounds(Lm)
+    for ld in loads:
+        t = str(ld.get("type", ""))
+        if t == "distributed":
+            x1 = float(ld.get("x1", 0.0))
+            x2 = float(ld.get("x2", Lm))
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if x1 < lo_b - 1e-9:
+                x1 = lo_b
+            if x2 > hi_b + 1e-9:
+                x2 = hi_b
+            if x2 - x1 < clearance:
+                if x1 + clearance <= hi_b + 1e-9:
+                    x2 = min(hi_b, x1 + clearance)
+                elif x2 - clearance >= lo_b - 1e-9:
+                    x1 = max(lo_b, x2 - clearance)
+            ld["x1"] = _round_to_decimals(x1, decimals)
+            ld["x2"] = _round_to_decimals(x2, decimals)
+        elif t in ("point", "moment", "inclined"):
+            ld["x"] = _clamp_station_on_beam(float(ld.get("x", Lm / 2)), Lm, decimals=decimals)
+    return loads
+
+
+def _dedupe_same_type_same_station(
+    loads: List[dict], *, decimals: Optional[int]
+) -> List[dict]:
+    """
+    מוודא שלא יהיו שני עומסים מאותו type בדיוק על אותה תחנה (אחרי עיגול).
+    זה אמור להיות נדיר בגלל כלל ה-0.9, אבל משמש כרשת ביטחון.
+    """
+
+    def q(v: float) -> float:
+        return _round_to_decimals(float(v), decimals)
+
+    seen: set = set()
+    out: List[dict] = []
+    for ld in loads:
+        t = str(ld.get("type", ""))
+        if t == "distributed":
+            x1 = q(ld.get("x1", 0.0))
+            x2 = q(ld.get("x2", 0.0))
+            key = (t, min(x1, x2), max(x1, x2))
+        else:
+            x = q(ld.get("x", 0.0))
+            # עבור point / inclined / moment: אותו type + אותו x נחשב "אותו מקום"
+            key = (t, x)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ld)
+    return out
+
+
+def _station_xs_from_loads(loads: List[dict]) -> List[float]:
+    pts: List[float] = []
+    for ld in loads:
+        pts.extend(_station_xs_from_load(ld))
+    return pts
+
+
+def _fix_vertical_down_on_distributed_edges(
+    rng: random.Random,
+    L: float,
+    loads: List[dict],
+    *,
+    decimals: int,
+) -> List[dict]:
+    """עומס אנכי יורד לא יישב על קצה של מפורס (אחרי תזוזות/עיגול)."""
+    Lm = max(0.1, float(L))
+    for ld in loads:
+        if str(ld.get("type", "")) != "point":
+            continue
+        if float(ld.get("Fy", 0.0)) >= 0:
+            continue
+        x0 = _round_to_decimals(float(ld.get("x", 0.0)), decimals)
+        if not _on_distributed_edge(x0, loads, decimals=decimals):
+            continue
+        others = [s for s in _station_xs_from_loads(loads) if abs(s - x0) > 1e-9]
+        if decimals == 1:
+            new_x = _pick_spaced_x_medium(rng, Lm, others, loads)
+            ld["x"] = _quantize_medium_x(new_x)
+        else:
+            new_x = _pick_spaced_x(rng, Lm, others, decimals=decimals)
+            ld["x"] = _quantize_hard_x(new_x)
+    return loads
+
+
+def _rand_x(rng: random.Random, L: float, margin: float = 0.12) -> float:
+    lo = max(0.0, L * margin)
+    hi = max(lo + 0.2, L * (1.0 - margin))
+    return max(0.0, min(L, rng.uniform(lo, hi)))
+
+
+def _rnd_dec1(rng: random.Random, lo: float, hi: float) -> float:
+    return round(rng.uniform(lo, hi), 1)
+
+
+def _rnd_dec2(rng: random.Random, lo: float, hi: float) -> float:
+    return round(rng.uniform(lo, hi), 2)
+
+
+def _quantize_hard_x(x: float) -> float:
+    """קשה (Master): עד שתי ספרות אחרי הנקודה."""
+    return round(float(x), 2)
+
+
+def _quantize_medium_x(x: float) -> float:
+    """בינוני: עד ספרה אחת אחרי הנקודה."""
+    return round(round(float(x) * 10) / 10.0, 1)
+
+
+def _rand_x_dec1(rng: random.Random, L: float, margin: float = 0.12) -> float:
+    return round(_rand_x(rng, L, margin), 1)
+
+
+def _inside_distributed_span(x: float, loads: List[dict]) -> bool:
+    """בתוך עומס מפורס (לא על הקצה)."""
+    xv = float(x)
+    for ld in loads:
+        if str(ld.get("type", "")) != "distributed":
+            continue
+        lo = min(float(ld["x1"]), float(ld["x2"]))
+        hi = max(float(ld["x1"]), float(ld["x2"]))
+        if lo + 1e-9 < xv < hi - 1e-9:
+            return True
+    return False
+
+
+def _on_distributed_edge(x: float, loads: List[dict], *, decimals: int) -> bool:
+    """האם x יושב בדיוק על קצה (x1/x2) של עומס מפורס (אחרי עיגול)."""
+    xv = round(float(x), decimals)
+    for ld in loads:
+        if str(ld.get("type", "")) != "distributed":
+            continue
+        x1 = round(float(ld.get("x1", 0.0)), decimals)
+        x2 = round(float(ld.get("x2", 0.0)), decimals)
+        if xv == x1 or xv == x2:
+            return True
+    return False
+
+
+def _random_vertical_fy(rng: random.Random, mag: float, *, up_prob: float) -> float:
+    """מייצר Fy לעומס אנכי עם סיכוי ל'עולה'."""
+    direction = "up" if rng.random() < float(up_prob) else "down"
+    return float(solver.point_magnitude_to_fy(float(mag), direction))
+
+
+def _distributed_spans_overlap(ld_a: dict, ld_b: dict) -> bool:
+    """חפיפה אמיתית בין שני מפורסים (לא רק מגע בקצה)."""
+    if str(ld_a.get("type", "")) != "distributed" or str(ld_b.get("type", "")) != "distributed":
+        return False
+    lo1 = min(float(ld_a["x1"]), float(ld_a["x2"]))
+    hi1 = max(float(ld_a["x1"]), float(ld_a["x2"]))
+    lo2 = min(float(ld_b["x1"]), float(ld_b["x2"]))
+    hi2 = max(float(ld_b["x1"]), float(ld_b["x2"]))
+    return min(hi1, hi2) - max(lo1, lo2) > 1e-9
+
+
+def _pick_spaced_x_medium(
+    rng: random.Random,
+    L: float,
+    stations: List[float],
+    loads: List[dict],
+    *,
+    margin: float = 0.12,
+    max_tries: int = 120,
+) -> float:
+    Lm = max(MIN_LOAD_POINT_SPACING, float(L))
+    lo_end, hi_end = _beam_station_bounds(Lm)
+    lo = max(lo_end, Lm * margin)
+    hi = min(hi_end, Lm * (1.0 - margin))
+    if hi - lo < MIN_LOAD_POINT_SPACING:
+        lo, hi = lo_end, hi_end
+    for _ in range(max_tries):
+        x = _quantize_medium_x(_clamp_on_beam(rng.uniform(lo, hi), Lm))
+        if _too_close_to_stations(x, stations):
+            continue
+        if _inside_distributed_span(x, loads):
+            continue
+        return x
+    n_slots = max(2, int(Lm / MIN_LOAD_POINT_SPACING) + 1)
+    for k in range(n_slots):
+        cand = _quantize_medium_x(k * Lm / (n_slots - 1) if n_slots > 1 else Lm / 2)
+        if not _too_close_to_stations(cand, stations) and not _inside_distributed_span(
+            cand, loads
+        ):
+            return cand
+    return _quantize_medium_x(Lm / 2)
+
+
+def _add_distributed_load_medium(
+    rng: random.Random,
+    L: float,
+    loads: List[dict],
+    stations: List[float],
+    *,
+    w_lo: float = 1.0,
+    w_hi: float = 4.5,
+) -> bool:
+    Lm = max(MIN_LOAD_POINT_SPACING, float(L))
+    span_lo = max(MIN_LOAD_POINT_SPACING, 0.25 * Lm)
+    for _ in range(80):
+        lo_end, hi_end = _beam_station_bounds(Lm)
+        x1 = _pick_spaced_x_medium(rng, Lm, stations, loads, margin=0.08)
+        span = _rnd_dec1(rng, max(MIN_LOAD_POINT_SPACING, 0.25 * Lm), max(MIN_LOAD_POINT_SPACING + 0.1, 0.65 * Lm))
+        x2 = _quantize_medium_x(min(hi_end, x1 + span))
+        if x2 > Lm or x2 - x1 < MIN_LOAD_POINT_SPACING:
+            continue
+        if _too_close_to_stations(x2, stations):
+            continue
+        candidate = {"type": "distributed", "x1": x1, "x2": x2, "w": 0.0}
+        if any(_distributed_spans_overlap(candidate, ld) for ld in loads):
+            continue
+        loads.append(
+            {
+                "type": "distributed",
+                "x1": x1,
+                "x2": x2,
+                "w": _quantize_medium_x(
+                    solver.downward_intensity_to_w(_rnd_dec1(rng, w_lo, w_hi))
+                ),
+            }
+        )
+        stations.extend([x1, x2])
+        return True
+    return False
+
+
+def _medium_inclined_load(
+    rng: random.Random, x: float, *, mag: Optional[float] = None
+) -> dict:
+    """עומס אלכסוני: זווית ורכיבים עד ספרה אחת אחרי הנקודה."""
+    angle_deg = _rnd_dec1(rng, 20.0, 70.0)
+    m = _rnd_dec1(rng, 4.0, 12.0) if mag is None else _quantize_medium_x(mag)
+    incl_dir = "dl" if rng.random() < 0.5 else "dr"
+    rad = math.radians(angle_deg)
+    c, s = math.cos(rad), math.sin(rad)
+    fx = (-m * c) if incl_dir == "dl" else (m * c)
+    return {
+        "type": "inclined",
+        "x": _quantize_medium_x(x),
+        "Fx": _quantize_medium_x(fx),
+        "Fy": _quantize_medium_x(-m * s),
+        "inclAngle": _quantize_medium_x(angle_deg),
+        "inclDir": incl_dir,
+    }
+
+
+def _hard_inclined_load(rng: random.Random, x: float) -> dict:
+    """עומס אלכסוני (Master): עד שתי ספרות אחרי הנקודה."""
+    angle_deg = _rnd_dec2(rng, 20.0, 70.0)
+    m = _rnd_dec2(rng, 4.0, 12.0)
+    incl_dir = "dl" if rng.random() < 0.5 else "dr"
+    rad = math.radians(angle_deg)
+    c, s = math.cos(rad), math.sin(rad)
+    fx = (-m * c) if incl_dir == "dl" else (m * c)
+    return {
+        "type": "inclined",
+        "x": _quantize_hard_x(x),
+        "Fx": _quantize_hard_x(fx),
+        "Fy": _quantize_hard_x(-m * s),
+        "inclAngle": _quantize_hard_x(angle_deg),
+        "inclDir": incl_dir,
+    }
+
+
+def _hard_axial_point(rng: random.Random, x: float) -> dict:
+    """עומס צירי (Master): Fx בלבד, עד שתי ספרות."""
+    fx_mag = _rnd_dec2(rng, 2.0, 14.0)
+    fx_sign = -1.0 if rng.random() < 0.5 else 1.0
+    return {
+        "type": "point",
+        "x": _quantize_hard_x(x),
+        "Fy": 0.0,
+        "Fx": _quantize_hard_x(fx_sign * fx_mag),
+    }
+
+
+def _clamp_on_beam(x: float, L: float) -> float:
+    return max(0.0, min(float(L), float(x)))
+
+
+def _station_xs_from_load(ld: dict) -> List[float]:
+    t = str(ld.get("type", ""))
+    if t == "distributed":
+        return [float(ld["x1"]), float(ld["x2"])]
+    if t in ("point", "moment", "inclined"):
+        return [float(ld["x"])]
+    return []
+
+
+def _too_close_to_stations(x: float, stations: List[float]) -> bool:
+    for s in stations:
+        if abs(float(x) - float(s)) < MIN_LOAD_POINT_SPACING - 1e-9:
+            return True
+    return False
+
+
+def _pick_spaced_x(
+    rng: random.Random,
+    L: float,
+    stations: List[float],
+    *,
+    decimals: int = 1,
+    margin: float = 0.12,
+    max_tries: int = 100,
+    loads: Optional[List[dict]] = None,
+) -> float:
+    """מיקום על הקורה [0,L], לפחות 0.9 m מכל נקודת מישור קיימת."""
+    Lm = max(MIN_LOAD_POINT_SPACING, float(L))
+    lo_end, hi_end = _beam_station_bounds(Lm)
+    lo = max(lo_end, Lm * margin)
+    hi = min(hi_end, Lm * (1.0 - margin))
+    if hi - lo < MIN_LOAD_POINT_SPACING:
+        lo, hi = lo_end, hi_end
+    for _ in range(max_tries):
+        raw = rng.uniform(lo, hi)
+        x = int(round(raw)) if decimals == 0 else round(raw, decimals)
+        x = _clamp_station_on_beam(x, Lm, decimals=decimals if decimals else None)
+        if decimals == 0:
+            x = int(round(x))
+        if _too_close_to_stations(x, stations):
+            continue
+        if loads is not None and _inside_distributed_span(x, loads):
+            continue
+        return x
+    n_slots = max(2, int(Lm / MIN_LOAD_POINT_SPACING) + 1)
+    for k in range(n_slots):
+        cand = k * Lm / (n_slots - 1) if n_slots > 1 else Lm / 2
+        cand = int(round(cand)) if decimals == 0 else round(cand, decimals)
+        cand = _clamp_on_beam(cand, Lm)
+        if not _too_close_to_stations(cand, stations) and (
+            loads is None or not _inside_distributed_span(cand, loads)
+        ):
+            return cand
+    return _clamp_on_beam(Lm / 2, Lm)
+
+
+def _add_distributed_load(
+    rng: random.Random,
+    L: float,
+    loads: List[dict],
+    stations: List[float],
+    *,
+    decimals: int,
+    w_lo: float,
+    w_hi: float,
+    span_lo: Optional[float] = None,
+    span_hi: Optional[float] = None,
+) -> bool:
+    Lm = max(MIN_LOAD_POINT_SPACING, float(L))
+    span_lo = span_lo if span_lo is not None else max(MIN_LOAD_POINT_SPACING, 0.25 * Lm)
+    span_hi = span_hi if span_hi is not None else max(span_lo + 0.1, 0.65 * Lm)
+    for _ in range(80):
+        span = _rnd_dec1(rng, span_lo, span_hi) if decimals else float(
+            rng.randint(int(max(1, span_lo)), int(max(span_lo + 1, span_hi)))
+        )
+        lo_end, hi_end = _beam_station_bounds(Lm)
+        x1 = _pick_spaced_x(rng, Lm, stations, decimals=decimals, margin=0.08)
+        x2 = round(min(hi_end, x1 + span), decimals) if decimals else float(
+            int(min(hi_end, x1 + span))
+        )
+        if x2 > hi_end:
+            x2 = hi_end
+            x1 = round(max(lo_end, x2 - span), decimals) if decimals else float(
+                int(max(lo_end, x2 - span))
+            )
+        x1 = _clamp_station_on_beam(x1, Lm, decimals=decimals if decimals else None)
+        x2 = _clamp_station_on_beam(x2, Lm, decimals=decimals if decimals else None)
+        if decimals == 0:
+            x1, x2 = int(round(x1)), int(round(x2))
+        if x2 < x1:
+            x1, x2 = x2, x1
+        if x2 - x1 < MIN_LOAD_POINT_SPACING:
+            continue
+        if _too_close_to_stations(x2, stations):
+            continue
+        w_mag = _rnd_dec1(rng, w_lo, w_hi) if decimals else float(rng.randint(int(w_lo), int(w_hi)))
+        loads.append(
+            {
+                "type": "distributed",
+                "x1": x1,
+                "x2": x2,
+                "w": solver.downward_intensity_to_w(w_mag),
+            }
+        )
+        stations.extend([x1, x2])
+        return True
+    return False
+
+
+def _sanitize_random_load_geometry(L: float, loads: List[dict]) -> List[dict]:
+    """עומסים בתוך הקורה בלבד; מרווח מינימלי בין נקודות מישור."""
+    Lm = max(0.1, float(L))
+    out: List[dict] = []
+    stations: List[float] = []
+    for ld in loads:
+        t = str(ld.get("type", ""))
+        if t == "distributed":
+            x1 = _clamp_on_beam(float(ld["x1"]), Lm)
+            x2 = _clamp_on_beam(float(ld["x2"]), Lm)
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if x2 - x1 < MIN_LOAD_POINT_SPACING:
+                x2 = min(Lm, x1 + MIN_LOAD_POINT_SPACING)
+            fixed = {**ld, "x1": x1, "x2": x2}
+        elif t in ("point", "moment", "inclined"):
+            x = _clamp_on_beam(float(ld["x"]), Lm)
+            if _too_close_to_stations(x, stations):
+                x = _clamp_on_beam(x + MIN_LOAD_POINT_SPACING, Lm)
+                if _too_close_to_stations(x, stations):
+                    x = _clamp_on_beam(x - 2 * MIN_LOAD_POINT_SPACING, Lm)
+            fixed = {**ld, "x": x}
+        else:
+            fixed = dict(ld)
+        out.append(fixed)
+        stations.extend(_station_xs_from_load(fixed))
+    return out
+
+
+def _build_easy_loads(rng: random.Random, L: float) -> List[dict]:
+    """קל: L=10, שני עומסים נקודתיים בלבד, מיקומים וגדלים שלמים; סיכוי 1/3 לעומס צירי אחד."""
+    Lm = max(2, int(round(L)))
+    stations: List[float] = []
+    xs: List[float] = []
+    for _ in range(2):
+        xs.append(_pick_spaced_x(rng, float(Lm), stations, decimals=0, margin=0.05))
+        stations.append(xs[-1])
+    xs.sort()
+    axial_idx = rng.randint(0, 1) if rng.random() < (1.0 / 3.0) else -1
+    loads: List[dict] = []
+    for i, x in enumerate(xs):
+        if i == axial_idx:
+            fx_mag = rng.randint(2, 12)
+            fx_sign = -1.0 if rng.random() < 0.5 else 1.0
+            loads.append(
+                {
+                    "type": "point",
+                    "x": int(x),
+                    "Fy": 0.0,
+                    "Fx": fx_sign * float(fx_mag),
+                }
+            )
+        else:
+            mag = rng.randint(2, 12)
+            loads.append(
+                {
+                    "type": "point",
+                    "x": int(x),
+                    "Fy": solver.point_magnitude_to_fy(float(mag), "down"),
+                }
+            )
+    return loads
+
+
+def _build_medium_loads(rng: random.Random, L: float) -> List[dict]:
+    """בינוני (Professor): 4 עומסים; כל ערך עומס/מיקום/זווית עד ספרה אחת אחרי הנקודה."""
+    kinds = [rng.choice(["point", "distributed", "moment", "inclined"]) for _ in range(4)]
+    loads: List[dict] = []
+    stations: List[float] = []
+    for kind in kinds:
+        if kind == "point":
+            x = _pick_spaced_x_medium(rng, L, stations, loads)
+            stations.append(x)
+            mag = _rnd_dec1(rng, 3.0, 14.0)
+            fy = _quantize_medium_x(_random_vertical_fy(rng, mag, up_prob=0.4))
+            # עומס אנכי יורד לא יישב בדיוק על קצה של מפורס
+            if fy < 0 and _on_distributed_edge(x, loads, decimals=1):
+                x = _pick_spaced_x_medium(rng, L, stations, loads)
+            loads.append(
+                {
+                    "type": "point",
+                    "x": x,
+                    "Fy": fy,
+                }
+            )
+        elif kind == "distributed":
+            if not _add_distributed_load_medium(rng, L, loads, stations):
+                x = _pick_spaced_x_medium(rng, L, stations, loads)
+                stations.append(x)
+                mag = _rnd_dec1(rng, 3.0, 14.0)
+                fy = _quantize_medium_x(_random_vertical_fy(rng, mag, up_prob=0.4))
+                if fy < 0 and _on_distributed_edge(x, loads, decimals=1):
+                    x = _pick_spaced_x_medium(rng, L, stations, loads)
+                loads.append(
+                    {
+                        "type": "point",
+                        "x": x,
+                        "Fy": fy,
+                    }
+                )
+        elif kind == "moment":
+            x = _pick_spaced_x_medium(rng, L, stations, loads)
+            stations.append(x)
+            loads.append(
+                {
+                    "type": "moment",
+                    "x": x,
+                    "M": _quantize_medium_x(
+                        _rnd_dec1(rng, 4.0, 18.0) * rng.choice([-1.0, 1.0])
+                    ),
+                }
+            )
+        else:
+            x = _pick_spaced_x_medium(rng, L, stations, loads)
+            stations.append(x)
+            loads.append(_medium_inclined_load(rng, x))
+    return loads
+
+
+def _sanitize_medium_load_geometry(L: float, loads: List[dict]) -> List[dict]:
+    """בינוני: עיגול לספרה אחת אחרי הנקודה על ציר הקורה."""
+    out = _sanitize_random_load_geometry(L, loads)
+    fixed: List[dict] = []
+    for ld in out:
+        t = str(ld.get("type", ""))
+        if t == "distributed":
+            x1 = _quantize_medium_x(_clamp_on_beam(float(ld["x1"]), L))
+            x2 = _quantize_medium_x(_clamp_on_beam(float(ld["x2"]), L))
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if x2 - x1 < MIN_LOAD_POINT_SPACING:
+                x2 = _quantize_medium_x(min(float(L), x1 + MIN_LOAD_POINT_SPACING))
+            fixed.append(
+                {
+                    **ld,
+                    "x1": x1,
+                    "x2": x2,
+                    "w": _quantize_medium_x(float(ld.get("w", 0.0))),
+                }
+            )
+        elif t == "point":
+            fixed.append(
+                {
+                    **ld,
+                    "x": _quantize_medium_x(_clamp_on_beam(float(ld["x"]), L)),
+                    "Fy": _quantize_medium_x(float(ld.get("Fy", 0.0))),
+                }
+            )
+            if "Fx" in ld:
+                fixed[-1]["Fx"] = _quantize_medium_x(float(ld["Fx"]))
+        elif t == "moment":
+            fixed.append(
+                {
+                    **ld,
+                    "x": _quantize_medium_x(_clamp_on_beam(float(ld["x"]), L)),
+                    "M": _quantize_medium_x(float(ld.get("M", 0.0))),
+                }
+            )
+        elif t == "inclined":
+            item = {
+                **ld,
+                "x": _quantize_medium_x(_clamp_on_beam(float(ld["x"]), L)),
+                "Fx": _quantize_medium_x(float(ld.get("Fx", 0.0))),
+                "Fy": _quantize_medium_x(float(ld.get("Fy", 0.0))),
+                "inclAngle": _quantize_medium_x(float(ld.get("inclAngle", 45.0))),
+            }
+            fixed.append(item)
+        else:
+            fixed.append(ld)
+    return fixed
+
+
+def _build_hard_loads(rng: random.Random, L: float) -> List[dict]:
+    """קשה (Master): מפורס + עומסים מעורבים כולל אנכי, אלכסוני וצירי."""
+    loads: List[dict] = []
+    stations: List[float] = []
+    if not _add_distributed_load(
+        rng,
+        L,
+        loads,
+        stations,
+        decimals=2,
+        w_lo=1.5,
+        w_hi=5.5,
+        span_lo=max(MIN_LOAD_POINT_SPACING, 0.35 * L),
+        span_hi=max(MIN_LOAD_POINT_SPACING + 0.1, 0.75 * L),
+    ):
+        _add_distributed_load(rng, L, loads, stations, decimals=2, w_lo=1.5, w_hi=5.5)
+    n_extra = rng.randint(4, 6)
+    kinds = ["point", "moment", "inclined", "axial"]
+    while len(kinds) < n_extra:
+        kinds.append(rng.choice(["point", "moment", "inclined", "axial"]))
+    rng.shuffle(kinds)
+    for kind in kinds[:n_extra]:
+        x = _pick_spaced_x(rng, L, stations, decimals=2, loads=loads)
+        if kind == "moment":
+            stations.append(x)
+            m_val = _quantize_hard_x(_rnd_dec2(rng, 4.0, 18.0) * rng.choice([-1.0, 1.0]))
+            loads.append({"type": "moment", "x": _quantize_hard_x(x), "M": m_val})
+        elif kind == "inclined":
+            stations.append(x)
+            loads.append(_hard_inclined_load(rng, x))
+        elif kind == "axial":
+            stations.append(x)
+            loads.append(_hard_axial_point(rng, x))
+        else:
+            mag = _rnd_dec2(rng, 4.0, 22.0)
+            fy = _quantize_hard_x(_random_vertical_fy(rng, mag, up_prob=0.4))
+            if fy < 0 and _on_distributed_edge(x, loads, decimals=2):
+                x = _pick_spaced_x(rng, L, stations, decimals=2, loads=loads)
+            stations.append(x)
+            loads.append(
+                {
+                    "type": "point",
+                    "x": _quantize_hard_x(x),
+                    "Fy": fy,
+                }
+            )
+    return loads
+
+
+def generate_random_exercise(level: str, support_mode: Optional[str] = None) -> None:
+    """יוצר תרגיל אקראי לפי רמת קושי וסוג קורה (סמכים / ריתום)."""
+    lvl = str(level or "easy").lower().strip()
+    if lvl not in ("easy", "medium", "hard"):
+        lvl = "easy"
+    sm = str(support_mode or st.session_state.get("beam_support_mode", "simple")).lower().strip()
+    if sm != "fixed":
+        sm = "simple"
+    st.session_state["beam_support_mode"] = sm
+    st.session_state["random_exercise_beam_type"] = sm
+    rng = random.Random()
+
+    if lvl == "easy":
+        L = 10.0
+        loads = _build_easy_loads(rng, L)
+        loads = _sanitize_random_load_geometry(L, loads)
+        loads = _enforce_beam_end_clearance(L, loads, decimals=0)
+        loads = _enforce_min_station_spacing(L, loads, decimals=0)
+        loads = _dedupe_same_type_same_station(loads, decimals=0)
+        loads = _enforce_beam_end_clearance(L, loads, decimals=0)
+        loads = _enforce_min_station_spacing(L, loads, decimals=0)
+    elif lvl == "medium":
+        L = _quantize_medium_x(rng.uniform(6.0, 10.0))
+        loads = _build_medium_loads(rng, L)
+        loads = _sanitize_medium_load_geometry(L, loads)
+        loads = _enforce_min_station_spacing(L, loads, decimals=1)
+        loads = _dedupe_same_type_same_station(loads, decimals=1)
+        loads = _enforce_min_station_spacing(L, loads, decimals=1)
+        loads = _fix_vertical_down_on_distributed_edges(rng, L, loads, decimals=1)
+        loads = _enforce_beam_end_clearance(L, loads, decimals=1)
+        loads = _enforce_min_station_spacing(L, loads, decimals=1)
+    else:
+        L = round(rng.uniform(7.0, 16.0), 1)
+        loads = _build_hard_loads(rng, L)
+        loads = _sanitize_random_load_geometry(L, loads)
+        loads = _enforce_min_station_spacing(L, loads, decimals=2)
+        loads = _dedupe_same_type_same_station(loads, decimals=2)
+        loads = _enforce_min_station_spacing(L, loads, decimals=2)
+        loads = _fix_vertical_down_on_distributed_edges(rng, L, loads, decimals=2)
+        loads = _enforce_beam_end_clearance(L, loads, decimals=2)
+        loads = _enforce_min_station_spacing(L, loads, decimals=2)
+
+    st.session_state["random_exercise_level"] = lvl
+    ra = rb = None
+    if lvl == "hard" and sm == "simple":
+        # בסמכים (simple): הסמכים לא יהיו בקצוות 0 ו-L
+        min_sep = max(2.2, 2.0 * MIN_LOAD_POINT_SPACING)
+        for _ in range(80):
+            ra_c = round(rng.uniform(0.05 * L, 0.35 * L), 1)
+            rb_c = round(rng.uniform(0.65 * L, 0.95 * L), 1)
+            if rb_c - ra_c >= min_sep:
+                ra, rb = ra_c, rb_c
+                break
+        if ra is None:
+            ra, rb = round(0.2 * L, 1), round(0.8 * L, 1)
+    _apply_analysis_loads_to_session(L, loads, commit_for_notebook=False, ra=ra, rb=rb)
+    st.session_state["_random_challenge_toast"] = True
+
+
 def ensure_beam_session_defaults() -> None:
     if "beam_L" not in st.session_state:
         st.session_state.beam_L = 10.0
@@ -330,6 +1249,12 @@ def ensure_beam_session_defaults() -> None:
         st.session_state.beam_snap_points = []
     if "beam_support_mode" not in st.session_state:
         st.session_state.beam_support_mode = "simple"
+    if "random_exercise_level" not in st.session_state:
+        st.session_state.random_exercise_level = "easy"
+    if "random_exercise_beam_type" not in st.session_state:
+        st.session_state.random_exercise_beam_type = ""
+    if "beam_canvas_applied" not in st.session_state:
+        st.session_state.beam_canvas_applied = True
     pending_canvas_scene = st.session_state.pop("_beam_canvas_pending_scene", None)
     if isinstance(pending_canvas_scene, dict):
         apply_canvas_scene_to_session(pending_canvas_scene)
@@ -552,6 +1477,13 @@ def canvas_export_to_loads(raw_loads: List[Any], L: float) -> List[dict]:
             x2 = max(0.0, min(L, float(lu.get("x2", L))))
             if x2 < x1:
                 x1, x2 = x2, x1
+            if x2 - x1 < MIN_LOAD_POINT_SPACING - 1e-9:
+                if x1 + MIN_LOAD_POINT_SPACING <= L + 1e-9:
+                    x2 = min(L, x1 + MIN_LOAD_POINT_SPACING)
+                elif x2 - MIN_LOAD_POINT_SPACING >= -1e-9:
+                    x1 = max(0.0, x2 - MIN_LOAD_POINT_SPACING)
+                else:
+                    continue
             w_mag = max(0.0, float(lu.get("w", 1.0)))
             loads.append(
                 {
@@ -586,6 +1518,8 @@ def get_loads_for_analysis(L: float, load_count: int) -> List[dict]:
     loads = loads_from_sidebar_session(L, load_count)
     if loads:
         return loads
+    if not canvas_notebook_ready():
+        return []
     cached = st.session_state.get("beam_canvas_loads")
     if isinstance(cached, list) and cached:
         return list(cached)
@@ -628,17 +1562,24 @@ def internal_loads_to_canvas_items(loads: List[dict]) -> List[dict]:
             fx_val = float(ld["Fx"])
             fy_mag = max(0.0, -float(ld["Fy"]))
             mag = (fx_val * fx_val + fy_mag * fy_mag) ** 0.5
-            items.append(
-                {
-                    "id": oid,
-                    "type": "incl",
-                    "x": float(ld["x"]),
-                    "fx": fx_val,
-                    "fy": fy_mag,
-                    "inclMag": mag if mag > 1e-9 else 10.0,
-                    "inclDir": "dl" if fx_val < 0 else "dr",
-                }
-            )
+            incl_dir = str(ld.get("inclDir", "dl" if fx_val < 0 else "dr"))
+            if incl_dir not in ("dl", "dr"):
+                incl_dir = "dl" if fx_val < 0 else "dr"
+            incl_item: Dict[str, Any] = {
+                "id": oid,
+                "type": "incl",
+                "x": float(ld["x"]),
+                "fx": fx_val,
+                "fy": fy_mag,
+                "inclMag": mag if mag > 1e-9 else 10.0,
+                "inclDir": incl_dir,
+            }
+            if ld.get("inclAngle") is not None:
+                incl_item["inclAngle"] = _quantize_medium_x(float(ld["inclAngle"]))
+            incl_item["inclMag"] = _quantize_medium_x(float(incl_item["inclMag"]))
+            incl_item["fx"] = _quantize_medium_x(float(incl_item["fx"]))
+            incl_item["fy"] = _quantize_medium_x(float(incl_item["fy"]))
+            items.append(incl_item)
     return items
 
 
@@ -703,13 +1644,14 @@ def apply_canvas_scene_to_session(result: Dict[str, Any]) -> None:
                 continue
         st.session_state["beam_snap_points"] = sorted(set(snap_points))
     st.session_state["beam_canvas_loads"] = loads_from_sidebar_session(Lm, n)
+    st.session_state["beam_canvas_applied"] = True
 
 
 @st.cache_resource
-def _beam_canvas_component_ctor(root_str: str, component_name: str):  # type: ignore[misc]
+def _beam_canvas_component_ctor(root_str: str):  # type: ignore[misc]
     import streamlit.components.v1 as components
 
-    return components.declare_component(component_name, path=root_str)
+    return components.declare_component("beam_solver_beam_board", path=root_str)
 
 
 def get_beam_canvas_component():
@@ -722,7 +1664,7 @@ def get_beam_canvas_component():
     except OSError:
         mt = 0
     st.session_state["_beam_canvas_component_mtime_ns"] = mt
-    return _beam_canvas_component_ctor(str(root.resolve()), f"beam_solver_beam_board_{mt}")
+    return _beam_canvas_component_ctor(str(root.resolve()))
 
 
 def render_geometry_sidebar() -> Tuple[float, float, float, int]:
@@ -969,7 +1911,16 @@ def render_beam_board(L: float, ra_pos: float, rb_pos: float, loads: List[dict])
                 chainMarks=chain_marks,
                 snapPoints=snap_points,
                 supportMode=st.session_state.get("beam_support_mode", "simple"),
-                key=f"beam_board_{st.session_state.get('_beam_canvas_component_mtime_ns', 0)}",
+                randomExerciseLevel=str(
+                    st.session_state.get("random_exercise_level", "easy")
+                ),
+                randomExerciseBeamType=str(
+                    st.session_state.get("random_exercise_beam_type", "")
+                ),
+                key=(
+                    f"beam_board_{st.session_state.get('_beam_board_nonce', 0)}_"
+                    f"{st.session_state.get('_beam_canvas_component_mtime_ns', 0)}"
+                ),
                 default=None,
                 height=980,
             )
@@ -977,22 +1928,45 @@ def render_beam_board(L: float, ra_pos: float, rb_pos: float, loads: List[dict])
             st.warning("רכיב לוח: " + str(ex))
             result = None
         if isinstance(result, dict):
+            rnd = result.get("randomGenerate")
+            if rnd:
+                rnd_ts = result.get("ts")
+                if rnd_ts != st.session_state.get("_random_exercise_last_ts"):
+                    st.session_state["_random_exercise_last_ts"] = rnd_ts
+                    generate_random_exercise(
+                        str(rnd), support_mode=result.get("supportMode")
+                    )
+                    if st.session_state.pop("_random_challenge_toast", False):
+                        st.toast("Challenge Accepted! 🎯", icon="✅")
+                    st.rerun()
             raw_lds = result.get("loads")
             if isinstance(raw_lds, list):
                 st.session_state["_beam_canvas_last_export"] = raw_lds
-            # שינוי אורך קורה בלוח בלי Apply: נשמור ב-session כדי למנוע קפיצה חזרה ל-10.
-            if not result.get("applied") and "L" in result:
+            # שינוי אורך קורה בלוח בלי Apply — רק אחרי Apply רשמי (לא בתצוגת תרגיל אקראי).
+            if (
+                not result.get("applied")
+                and canvas_notebook_ready()
+                and "L" in result
+            ):
                 new_l = max(0.1, float(result.get("L", st.session_state.get("beam_L", 10.0))))
                 old_l = float(st.session_state.get("beam_L", 10.0))
-                st.session_state["beam_L"] = new_l
-                st.session_state["beam_ra_pos"] = max(
-                    0.0, min(new_l, float(result.get("ra", st.session_state.get("beam_ra_pos", 0.0))))
-                )
-                st.session_state["beam_rb_pos"] = max(
-                    0.0, min(new_l, float(result.get("rb", st.session_state.get("beam_rb_pos", new_l))))
-                )
                 if abs(new_l - old_l) > 1e-6:
+                    st.session_state["beam_L"] = new_l
+                    st.session_state["beam_ra_pos"] = max(
+                        0.0, min(new_l, float(result.get("ra", st.session_state.get("beam_ra_pos", 0.0))))
+                    )
+                    st.session_state["beam_rb_pos"] = max(
+                        0.0, min(new_l, float(result.get("rb", st.session_state.get("beam_rb_pos", new_l))))
+                    )
+                    st.session_state["_beam_canvas_l_sync_ts"] = result.get("ts")
                     st.rerun()
+                elif abs(new_l - old_l) <= 1e-6:
+                    st.session_state["beam_ra_pos"] = max(
+                        0.0, min(new_l, float(result.get("ra", st.session_state.get("beam_ra_pos", 0.0))))
+                    )
+                    st.session_state["beam_rb_pos"] = max(
+                        0.0, min(new_l, float(result.get("rb", st.session_state.get("beam_rb_pos", new_l))))
+                    )
             if result.get("applied"):
                 ts = result.get("ts")
                 if ts != st.session_state.get("_beam_canvas_last_ts"):
@@ -1198,9 +2172,15 @@ def render_results(
             f"M ב־x={solver.format_number(cx)}: **{solver.format_number(solver.bending_moment(cx, loads, ra_y, rb_y, ra_pos, rb_pos))}** kN·m"
         )
     with t4:
-        beam_notebook.render_solved_notebook(
-            loads, L, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y
-        )
+        if not canvas_notebook_ready():
+            st.info(
+                "תרגיל אקראי מוצג בלוח — לחץ **Apply changes** כדי לקבל כאן פתרון מחברת מדויק."
+            )
+            st.caption("עד אז אפשר לערוך עומסים בלוח; המחברת תתעדכן רק אחרי Apply.")
+        else:
+            beam_notebook.render_solved_notebook(
+                loads, L, ra_pos, rb_pos, ra_x, ra_y, rb_x, rb_y
+            )
 
 
 def render_cantilever_results(loads: List[dict], L: float, result: Dict[str, Any]) -> None:
@@ -1306,7 +2286,12 @@ def render_cantilever_results(loads: List[dict], L: float, result: Dict[str, Any
                 f"M={solver.format_number(solver.cantilever_bending_moment(xv, loads, ry, fixed_moment))}"
             )
     with t4:
-        if hasattr(beam_notebook, "_load_live_notebook_module"):
+        if not canvas_notebook_ready():
+            st.info(
+                "תרגיל אקראי מוצג בלוח — לחץ **Apply changes** כדי לקבל כאן פתרון מחברת מדויק."
+            )
+            st.caption("עד אז אפשר לערוך עומסים בלוח; המחברת תתעדכן רק אחרי Apply.")
+        elif hasattr(beam_notebook, "_load_live_notebook_module"):
             nb = beam_notebook._load_live_notebook_module()
             if hasattr(nb, "render_cantilever_notebook"):
                 nb.render_cantilever_notebook(loads, L, result)
